@@ -1,6 +1,6 @@
 # Krea 2 (K2)
 
-Krea 2 - image generation model from [Krea](https://krea.ai).
+Krea 2 - an image generation model from [Krea AI](https://krea.ai).
 
 ---
 
