@@ -11,6 +11,8 @@ Krea 2 - an image generation model from [Krea AI](https://krea.ai).
 <a href="https://www.krea.ai/blog/krea-2-technical-report">Technical Blog</a>
 </p>
 
+<img src="assets/big.png" alt="k2 banner">
+
 <img src="assets/k2.png" alt="k2 banner">
 
 This is the official repository for the open version of Krea 2, an image model trained from scratch focused on creative and stylistic exploration. The repository contains inference code and instructions to run the model.
