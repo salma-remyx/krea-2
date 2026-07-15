@@ -15,8 +15,8 @@ name: Outrider daily (branch-mode, drafter)
 # is the single-vendor default for onboarding simplicity).
 
 on:
-  schedule:
-    - cron: '0 6 * * *'   # daily 06:00 UTC; adjust cadence to workload
+  # schedule:  # disabled - serial dispatcher drives workflow_dispatch
+    # - cron: '0 6 * * *'   # daily 06:00 UTC; adjust cadence to workload
   workflow_dispatch: {}
 
 concurrency:
