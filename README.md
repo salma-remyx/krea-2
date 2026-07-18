@@ -122,3 +122,23 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Feature caching (inference acceleration)
+
+Optional, training-free acceleration for the `SingleStreamDiT` block loop, adapted from *Accelerating Diffusion Transformers with Dual Feature Caching* (DuCa). It caches the post-block feature from a *fresh* denoising step and reuses it to skip block compute on later steps, alternating aggressive reuse (skip the block loop) with conservative random-token correction (realign the cache) inside each caching cycle. The model's `(img, context, t, pos, mask) -> velocity` contract is unchanged, and CFG cond/uncond branches keep independent caches.
+
+Enable it on a built, weight-loaded model — for example right after `_pipeline(...)` returns in `inference.py`:
+
+```python
+from feature_caching import apply_dual_feature_caching
+
+dit, ae, encoder = _pipeline(checkpoint=checkpoint)
+apply_dual_feature_caching(dit, cycle_length=5, cache_ratio=0.9)
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `cycle_length` | `5` | Denoising steps per caching cycle (`fresh -> conservative -> aggressive -> conservative -> aggressive`). |
+| `cache_ratio` | `0.9` | Fraction of tokens kept from the cache in each conservative step; the rest are recomputed. |
+
+Restore the original model at any time with `remove_dual_feature_caching(dit)`. See `feature_caching.py` for the adaptation notes (acceleration comes from the aggressive steps skipping the block loop; conservative steps buy quality by realigning the cache without breaking the fused attention kernels).
