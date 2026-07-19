@@ -73,6 +73,7 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    merge=None,
 ):
     """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
     patch = model.config.patch
@@ -113,6 +114,8 @@ def sample(
     if cfg:
         untxt, untxtmask = encoder(negative_prompts)
         _, unpos, unmask = prepare(noise, untxt.shape[1], patch, untxtmask)
+    else:
+        untxt = unpos = unmask = None
 
     # min_res/max_res define the (x1,y1)-(x2,y2) interpolation endpoints for `mu`.
     x1 = (minres // (ae.compression * patch)) ** 2
@@ -123,12 +126,20 @@ def sample(
     img = x
     for tcurr, tprev in zip(ts[:-1], ts[1:]):
         t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
-        cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
-        if cfg:
-            uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
-            v = cond + guidance * (cond - uncond)
+        if merge is None:
+            cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
+            if cfg:
+                uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
+                v = cond + guidance * (cond - uncond)
+            else:
+                v = cond
         else:
-            v = cond
+            # Stability-guided adaptive token merge (SADA): the hook collapses
+            # redundant image tokens for this step's model call(s) and scatters
+            # the velocity back, so the trajectory stays on the full token grid.
+            v = merge.step(
+                img, model, txt, untxt, pos, unpos, mask, unmask, t, tcurr, guidance, cfg
+            )
         img = img + (tprev - tcurr) * v
 
     # Unpatchify back to a latent and decode to pixels.

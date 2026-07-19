@@ -122,3 +122,32 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Accelerated sampling (stability-guided token merging)
+
+`sample()` accepts an optional `merge=` hook that applies training-free,
+per-step token merging around the model call to cut the attention cost of each
+denoising step. The merge ratio is adaptive rather than fixed: it scales with
+how stable the denoising trajectory is at the current step (more stable →
+compress more), so the compression schedule flexes per prompt instead of
+staying constant.
+
+```python
+from sampling import sample
+from stability_merge import StabilityMerge
+
+images = sample(
+    dit, ae, encoder, ["a fox walking in the snow"],
+    steps=52, cfg=3.5, merge=StabilityMerge(),
+)
+```
+
+The trajectory itself is never coarsened — only each step's forward pass is —
+so the latent grid the autoencoder decodes is unchanged in shape.
+
+Adapted from SADA: Stability-guided Adaptive Diffusion Acceleration
+([arXiv:2507.17135](https://arxiv.org/abs/2507.17135)). This integration keeps
+the paper's core idea (a stability-guided adaptive merge schedule) and applies
+it as a call-boundary hook with a parameter-free stability proxy, rather than
+the paper's per-attention-layer hooks; see `stability_merge.py` for details.
+
