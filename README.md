@@ -122,3 +122,23 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Fast inference with feature caching
+
+`inference_fast.py` runs the same pipeline as `inference.py` but wraps the
+MM-DiT so that transformer-block outputs are cached across denoising steps and
+reused to skip computation on later steps — accelerating both `oss_raw` and
+`oss_turbo`. Two tiers are cached:
+
+- **static** (`--cache-static`, default `4`): the first *N* blocks' outputs are
+  frozen after the first step (shallow features drift slowly across timesteps).
+- **dynamic** (`--cache-dynamic`, default `4`): the next *N* blocks' outputs are
+  refreshed every other step.
+
+```bash
+uv run inference_fast.py "a fox walking in the snow" \
+    --checkpoint oss_turbo --steps 8 --cfg 0.0 --mu 1.15
+```
+
+Pass `--cache-static 0 --cache-dynamic 0` for exact parity with `inference.py`.
+Larger cache sizes trade image fidelity for speed — tune for your use case.
