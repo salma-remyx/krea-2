@@ -107,10 +107,31 @@ def _pipeline(
     type=float,
 )
 @click.option(
+    "--accel",
+    default=None,
+    show_default=True,
+    type=float,
+    help="enable SADA stability-guided step caching; reuse the previous step's "
+    "model output when the velocity curvature ||d2(y)||/||y|| is below this "
+    "threshold (e.g. 0.05). None disables it (default).",
+)
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    accel,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +148,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        accel=accel,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"

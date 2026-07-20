@@ -6,6 +6,8 @@ import torch
 from einops import rearrange, repeat
 from PIL import Image
 
+from stability_cache import StabilityCache
+
 
 def roundup(value, multiple, name):
     """Round `value` up to the nearest multiple, logging when padding is applied."""
@@ -73,6 +75,8 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    accel=None,
+    accel_max_skip=1,
 ):
     """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
     patch = model.config.patch
@@ -119,17 +123,34 @@ def sample(
     x2 = (maxres // (ae.compression * patch)) ** 2
     ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
-    # Euler integration of the flow ODE with CFG.
+    # Euler integration of the flow ODE with CFG. When `accel` is set, a step
+    # the stability criterion flags as locally linear reuses the previous step's
+    # model output instead of paying for a fresh forward (SADA step-wise
+    # cache-assisted pruning); `accel=None` reproduces the unmodified sampler.
     img = x
+    cache = StabilityCache(accel, accel_max_skip) if accel else None
     for tcurr, tprev in zip(ts[:-1], ts[1:]):
         t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
-        cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
-        if cfg:
-            uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
-            v = cond + guidance * (cond - uncond)
+        reused = cache is not None and cache.should_reuse()
+        if reused:
+            cond, uncond = cache.cached()
+            cache.mark_reused()
         else:
-            v = cond
+            cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
+            uncond = (
+                model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
+                if cfg
+                else None
+            )
+        v = cond + guidance * (cond - uncond) if cfg else cond
+        if cache is not None and not reused:
+            cache.record(cond, uncond, v)
         img = img + (tprev - tcurr) * v
+    if cache is not None:
+        print(
+            f"[sample] stability cache: {cache.computed} computed, "
+            f"{cache.reused} reused of {len(ts) - 1} steps"
+        )
 
     # Unpatchify back to a latent and decode to pixels.
     img = rearrange(

@@ -122,3 +122,25 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Stability-guided step caching (`--accel`)
+
+`sample()` is a first-order Euler flow-matching solver: every step calls the
+model to read off the velocity `y = dx/dt`. When the denoising trajectory is
+locally linear that velocity barely changes between adjacent steps, so a fresh
+forward pass on every step is largely wasted. Pass `--accel` to reuse the
+previous step's model output on steps the stability criterion flags as stable,
+skipping the forward — and, under CFG, skipping both the conditional and
+unconditional branches. `accel` is the threshold on the relative velocity
+curvature `||d2(y)|| / ||y||` (lower is stricter → fewer skips); unset disables
+it and reproduces the unmodified sampler.
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_raw --steps 52 --cfg 3.5 --accel 0.05
+```
+
+Adapted from *SADA: Stability-guided Adaptive Diffusion Acceleration* (Jiang et
+al., ICML 2025, arXiv:2507.17135). This ports SADA's step-wise cache-assisted
+pruning onto the bare Euler sampler; see `stability_cache.py` for the scope
+notes on what was kept at fidelity versus substituted.
