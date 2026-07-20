@@ -233,8 +233,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
             -f mode=recommend \
-            -f provider=anthropic \
-            -f model=claude-opus-4-8 \
+            -f provider=moonshot \
+            -f model=kimi-k3 \
             -f pin-arxiv="$ARXIV" \
             -f start-from-ref="$BRANCH" \
             -f lead-content="$GAP" \
