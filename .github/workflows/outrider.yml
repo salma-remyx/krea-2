@@ -79,6 +79,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY_SECRET: ${{ secrets.ANTHROPIC_API_KEY }}
           ZAI_API_KEY_SECRET: ${{ secrets.ZAI_API_KEY }}
+          MOONSHOT_API_KEY_SECRET: ${{ secrets.MOONSHOT_API_KEY }}
           PROVIDER_INPUT: ${{ inputs.provider }}
           MODEL_INPUT: ${{ inputs.model }}
         run: |
@@ -89,6 +90,10 @@ jobs:
               echo "ANTHROPIC_AUTH_TOKEN=$ZAI_API_KEY_SECRET" >> "$GITHUB_ENV"
               echo "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic" >> "$GITHUB_ENV"
               echo "base_url=https://api.z.ai/api/anthropic" >> "$GITHUB_OUTPUT" ;;
+            moonshot)
+              echo "ANTHROPIC_AUTH_TOKEN=$MOONSHOT_API_KEY_SECRET" >> "$GITHUB_ENV"
+              echo "ANTHROPIC_BASE_URL=https://api.moonshot.ai/anthropic" >> "$GITHUB_ENV"
+              echo "base_url=https://api.moonshot.ai/anthropic" >> "$GITHUB_OUTPUT" ;;
             *)
               echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY_SECRET" >> "$GITHUB_ENV"
               echo "base_url=" >> "$GITHUB_OUTPUT" ;;
