@@ -14,9 +14,9 @@ name: Outrider
 # both per run (that's how a two-tier refiner dispatches its promotions).
 
 on:
-  schedule:
+  # schedule:  # disabled — serial dispatcher drives via workflow_dispatch
     # Daily at 14:00 UTC
-    - cron: '0 14 * * *'
+    # - cron: '0 14 * * *'
   workflow_dispatch:
     inputs:
       pin-arxiv:
