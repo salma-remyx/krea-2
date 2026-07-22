@@ -1,0 +1,12 @@
+schema_version: 1
+fork: salma-remyx/krea-2
+observed_landing_zones: []
+rejected_shapes:
+- shape_tag: null
+  reason_code: null
+  reason_summary: ''
+  observed:
+  - arxiv: 2412.18911v1
+    timestamp: '2026-07-22T22:04:43Z'
+coordination_signals: []
+last_updated: '2026-07-22T22:04:43Z'
