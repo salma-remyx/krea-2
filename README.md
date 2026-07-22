@@ -122,3 +122,23 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Accelerated inference (Truncated Jump Sampling)
+
+`--tjs N` enables Truncated Jump Sampling: stop the denoising ODE after `N`
+steps and decode the clean image directly from the intermediate state's flow
+velocity. It is training-free and cuts the number of model evaluations from
+`--steps` down to `N` at near-matched quality, on either checkpoint.
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_raw --steps 52 --cfg 3.5 --tjs 26
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--tjs` | `None` | Enable Truncated Jump Sampling and stop after this many steps, decoding the clean endpoint early (cuts NFE vs `--steps`, training-free). |
+
+Adapted from "x-Prediction Is All You Need: Training-Free Accelerated
+Generation via Endpoint Decodability". Quality/NFE benchmarking (FID, etc.)
+is intentionally left to a downstream PR.

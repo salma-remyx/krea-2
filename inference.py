@@ -107,10 +107,30 @@ def _pipeline(
     type=float,
 )
 @click.option(
+    "--tjs",
+    "tjs_early_exit",
+    default=None,
+    type=int,
+    help="enable Truncated Jump Sampling and stop after this many steps, "
+    "decoding the clean endpoint early (cuts NFE vs --steps, training-free)",
+)
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    tjs_early_exit,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +147,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        tjs_early_exit=tjs_early_exit,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"

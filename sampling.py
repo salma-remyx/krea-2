@@ -6,6 +6,8 @@ import torch
 from einops import rearrange, repeat
 from PIL import Image
 
+from endpoint_decoding import decode_endpoint
+
 
 def roundup(value, multiple, name):
     """Round `value` up to the nearest multiple, logging when padding is applied."""
@@ -73,8 +75,16 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    tjs_early_exit=None,
 ):
-    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode.
+
+    ``tjs_early_exit`` enables Truncated Jump Sampling: integrate only that many
+    Euler steps (1..steps) and, on the last one, jump straight to the decoded
+    clean endpoint x0 = x_{t*} - t* * v instead of running the full schedule to
+    t=0. This cuts the NFE from ``steps`` to ``tjs_early_exit`` at near-matched
+    quality, training-free. ``None`` runs the full sampler unchanged.
+    """
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,
@@ -119,17 +129,35 @@ def sample(
     x2 = (maxres // (ae.compression * patch)) ** 2
     ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
-    # Euler integration of the flow ODE with CFG.
-    img = x
-    for tcurr, tprev in zip(ts[:-1], ts[1:]):
-        t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
-        cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
+    # Evaluate the learned flow velocity v(x_t) (cond, plus uncond when CFG is
+    # on), kept as a closure so both the Euler loop and the TJS decode share it.
+    def velocity(xt, tval):
+        t = torch.full((len(xt),), tval, dtype=xt.dtype, device=xt.device)
+        cond = model(img=xt, context=txt, t=t, pos=pos, mask=mask)
         if cfg:
-            uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
-            v = cond + guidance * (cond - uncond)
+            uncond = model(img=xt, context=untxt, t=t, pos=unpos, mask=unmask)
+            return cond + guidance * (cond - uncond)
+        return cond
+
+    # Truncated Jump Sampling: optionally integrate only the first
+    # `tjs_early_exit` segments and, on the last one, jump straight to the
+    # decoded clean endpoint (x0 = x_{t*} - t* * v) instead of the next grid
+    # point, cutting NFE from `steps` to `tjs_early_exit`.
+    segments = list(zip(ts[:-1], ts[1:]))
+    if tjs_early_exit is not None:
+        early_exit = max(1, min(int(tjs_early_exit), len(segments)))
+        segments = segments[:early_exit]
+    else:
+        early_exit = None
+
+    img = x
+    last = len(segments) - 1
+    for i, (tcurr, tprev) in enumerate(segments):
+        v = velocity(img, tcurr)
+        if early_exit is not None and i == last:
+            img = decode_endpoint(img, v, tcurr)
         else:
-            v = cond
-        img = img + (tprev - tcurr) * v
+            img = img + (tprev - tcurr) * v
 
     # Unpatchify back to a latent and decode to pixels.
     img = rearrange(
