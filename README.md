@@ -122,3 +122,25 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Faster inference with Truncated Jump Sampling (early exit)
+
+`--early-exit` enables a training-free NFE reduction adapted from *x-Prediction
+Is All You Need: Training-Free Accelerated Generation via Endpoint Decodability*
+(arXiv:2607.06114). On the affine flow path the intermediate latent and the
+model's velocity already determine a minimum-MSE estimate of the clean sample,
+`x_0 = x_t - t * v`. Truncated Jump Sampling (TJS) stops the ODE at an
+early-exit timestep `t*` and returns that decoded endpoint instead of running
+the remaining Euler steps — no retraining, distillation, or architecture
+change. The default full Euler path is untouched when the flag is omitted.
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_raw --steps 52 --cfg 3.5 --early-exit 0.3
+```
+
+Pick `t*` in `(0, 1]`: lower values exit later (closer to full quality), higher
+values exit sooner (more NFE saved). The realized speedup depends on where `t*`
+falls in the schedule — dense multi-step schedules (e.g. the 52-step RAW path)
+drop the most steps, while sparse few-step schedules (e.g. the 8-step Turbo
+path) gain less, since `t*` may only clear near the final step.
