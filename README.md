@@ -122,3 +122,22 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Accelerated sampling (Truncated Jump Sampling)
+
+For a training-free latency cut, pass `--early-exit t*`, a flow time in `(0, 1)`.
+The sampler stops the flow ODE the first time the leading timestep drops to `t*`
+and returns the decoded clean-sample estimate `x0 = x_t - t * v` (endpoint
+decodability) instead of integrating all the way to `t = 0`. This reduces the
+number of neural function evaluations by roughly 20-70% at near-matched quality,
+with no retraining, distillation, or architecture change. Omit the flag for full
+integration.
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_raw --steps 52 --cfg 3.5 --early-exit 0.5
+```
+
+Higher `t*` exits sooner (fewer steps, faster); lower `t*` runs longer (more
+steps, higher fidelity). Works with both `oss_raw` and `oss_turbo`.
+

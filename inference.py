@@ -107,10 +107,31 @@ def _pipeline(
     type=float,
 )
 @click.option(
+    "--early-exit",
+    "early_exit",
+    default=None,
+    type=float,
+    help="Truncated Jump Sampling early-exit flow time t* in (0, 1). Stops the "
+    "ODE at t* and decodes the endpoint (x0 = x_t - t*v) for a training-free "
+    "20-70% NFE cut at near-matched quality. Omit for full integration.",
+)
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    early_exit,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +148,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        early_exit=early_exit,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"

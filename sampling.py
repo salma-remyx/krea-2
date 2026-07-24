@@ -6,6 +6,8 @@ import torch
 from einops import rearrange, repeat
 from PIL import Image
 
+from endpoint_decode import decode_endpoint, early_exit_index
+
 
 def roundup(value, multiple, name):
     """Round `value` up to the nearest multiple, logging when padding is applied."""
@@ -73,8 +75,16 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    early_exit=None,
 ):
-    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode.
+
+    When ``early_exit`` (a flow time t*) is set, apply Truncated Jump Sampling:
+    stop the Euler ODE the first time the leading timestep drops to t* and
+    decode the endpoint ``x0 = x_t - t * v`` instead of integrating to t = 0.
+    This cuts NFEs training-free at near-matched quality (arXiv:2607.06114).
+    ``None`` disables the early exit and integrates fully (the default).
+    """
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,
@@ -121,7 +131,8 @@ def sample(
 
     # Euler integration of the flow ODE with CFG.
     img = x
-    for tcurr, tprev in zip(ts[:-1], ts[1:]):
+    exit_at = early_exit_index(ts, early_exit)
+    for i, (tcurr, tprev) in enumerate(zip(ts[:-1], ts[1:])):
         t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
         cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
         if cfg:
@@ -129,6 +140,11 @@ def sample(
             v = cond + guidance * (cond - uncond)
         else:
             v = cond
+        # Truncated Jump Sampling: at the early-exit time t* stop the ODE and
+        # return the decoded endpoint x0 = x_t - t * v instead of stepping.
+        if i == exit_at:
+            img = decode_endpoint(img, tcurr, v)
+            break
         img = img + (tprev - tcurr) * v
 
     # Unpatchify back to a latent and decode to pixels.
