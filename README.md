@@ -122,3 +122,20 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Truncated Jump Sampling (TJS)
+
+`truncated_jump.sample` is a drop-in replacement for `sampling.sample` that adds an optional **Truncated Jump** early exit for training-free inference acceleration. On the affine flow path, an intermediate state `x_t` and its velocity `v` already determine a principled estimate of the clean sample via `x_0 = x_t - t * v`; TJS stops the ODE at an early-exit time `t*` and decodes the endpoint, cutting NFEs without retraining, distillation, or architecture changes.
+
+Enable it with the `tjs_exit` fraction — the share of the scheduled Euler steps to run before the jump (`1.0` reproduces the default sampler exactly):
+
+```python
+from truncated_jump import sample
+
+images = sample(dit, ae, encoder, ["a fox walking in the snow"],
+                steps=52, cfg=3.5, tjs_exit=0.6)  # fewer NFEs on oss_raw
+```
+
+To expose it on the CLI, swap the import in `inference.py` (`from sampling import sample` → `from truncated_jump import sample`) and pass a `--tjs-exit` option. Start near `1.0` and lower it to trade quality for speed; the paper reports 20–70% NFE reduction at near-matched quality across SDXL, SD3.5M, and Z-Image-Turbo.
+
+Adapted from *x-Prediction Is All You Need: Training-Free Accelerated Generation via Endpoint Decodability* ([arXiv:2607.06114](https://arxiv.org/abs/2607.06114)).
