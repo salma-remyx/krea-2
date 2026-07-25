@@ -6,6 +6,8 @@ import torch
 from einops import rearrange, repeat
 from PIL import Image
 
+from jump_sampling import decode_endpoint, truncation_steps
+
 
 def roundup(value, multiple, name):
     """Round `value` up to the nearest multiple, logging when padding is applied."""
@@ -73,8 +75,14 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    tjs=None,
 ):
-    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode.
+
+    ``tjs`` in ``(0, 1]`` enables Truncated Jump Sampling: run only that fraction
+    of the schedule and decode the clean latent from the last velocity (a
+    training-free NFE cut). ``None`` keeps the full Euler rollout.
+    """
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,
@@ -119,9 +127,16 @@ def sample(
     x2 = (maxres // (ae.compression * patch)) ** 2
     ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
-    # Euler integration of the flow ODE with CFG.
+    # Euler integration of the flow ODE with CFG. Under Truncated Jump Sampling
+    # (tjs in (0, 1]) we run only a fraction of the schedule and, on the final
+    # kept step, decode x_0 = x_t - t * v from the velocity instead of stepping.
+    jump = tjs is not None and tjs < 1.0
+    pairs = list(zip(ts[:-1], ts[1:]))
+    if jump:
+        pairs = pairs[: truncation_steps(steps, tjs)]
+
     img = x
-    for tcurr, tprev in zip(ts[:-1], ts[1:]):
+    for i, (tcurr, tprev) in enumerate(pairs):
         t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
         cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
         if cfg:
@@ -129,7 +144,10 @@ def sample(
             v = cond + guidance * (cond - uncond)
         else:
             v = cond
-        img = img + (tprev - tcurr) * v
+        if jump and i == len(pairs) - 1:
+            img = decode_endpoint(img, v, tcurr)
+        else:
+            img = img + (tprev - tcurr) * v
 
     # Unpatchify back to a latent and decode to pixels.
     img = rearrange(

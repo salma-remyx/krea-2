@@ -77,6 +77,19 @@ uv run inference.py "a fox walking in the snow" \
 | `--output` | `sample` | Output filename prefix. |
 
 
+## Accelerated sampling
+
+`sample()` accepts a `tjs` argument (Truncated Jump Sampling) for training-free inference acceleration. Set `tjs` to a fraction in `(0, 1]` to run only that portion of the denoising schedule and decode the clean latent directly from the last computed velocity — cutting neural function evaluations (NFEs) by the complementary fraction with no retraining or architecture change. `tjs=None` (the default) keeps the full Euler rollout unchanged.
+
+```python
+from sampling import sample
+
+# Run half the schedule, then decode the endpoint from the last velocity.
+images = sample(dit, ae, encoder, ["a fox walking in the snow"], steps=28, tjs=0.5)
+```
+
+This applies to both RAW (e.g. `steps=52, tjs=0.5`) and Turbo (e.g. `steps=8, tjs=0.5`). Lower `tjs` trades quality for speed; start near `0.5` and tune. Based on *x-Prediction Is All You Need: Training-Free Accelerated Generation via Endpoint Decodability* ([arxiv:2607.06114](https://arxiv.org/abs/2607.06114)).
+
 ## Documentation
 
 - [Prompting Guide](docs/prompting.md)
