@@ -122,3 +122,24 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Faster inference with Truncated Jump Sampling
+
+On the affine flow-matching path, the clean endpoint is decodable from any
+intermediate state and its velocity (`x0 = x_t - t * v`), so the sampler can
+stop early and jump straight to `x0` instead of stepping the whole ODE. Pass
+`--exit-step N` to run only `N` denoising steps and then decode — a
+training-free, architecture-free NFE cut (roughly 20–70% fewer steps at
+near-matched quality). Omit it to run the full schedule unchanged.
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_turbo --steps 8 --cfg 0.0 --mu 1.15 \
+    --width 2048 --height 2048 --exit-step 4
+```
+
+Adapted from *x-Prediction Is All You Need: Training-Free Accelerated
+Generation via Endpoint Decodability*. The decoder lives in
+`endpoint_decode.py` and is hooked into the sampler via the `exit_step`
+argument of `sample()`.
+

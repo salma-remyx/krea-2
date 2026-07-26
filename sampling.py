@@ -6,6 +6,8 @@ import torch
 from einops import rearrange, repeat
 from PIL import Image
 
+from endpoint_decode import decode_endpoint
+
 
 def roundup(value, multiple, name):
     """Round `value` up to the nearest multiple, logging when padding is applied."""
@@ -73,8 +75,15 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    exit_step=None,
 ):
-    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode.
+
+    ``exit_step`` enables Truncated Jump Sampling: run only that many denoising
+    steps, then decode ``x0`` straight from the current state + velocity
+    (endpoint decodability) and return, skipping the remaining ODE steps for a
+    training-free NFE reduction. ``None`` runs the full schedule unchanged.
+    """
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,
@@ -121,7 +130,7 @@ def sample(
 
     # Euler integration of the flow ODE with CFG.
     img = x
-    for tcurr, tprev in zip(ts[:-1], ts[1:]):
+    for i, (tcurr, tprev) in enumerate(zip(ts[:-1], ts[1:])):
         t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
         cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
         if cfg:
@@ -129,6 +138,14 @@ def sample(
             v = cond + guidance * (cond - uncond)
         else:
             v = cond
+        # Truncated Jump Sampling: once `exit_step` denoising steps have run,
+        # decode x0 directly from the current state + velocity (endpoint
+        # decodability) and skip the rest of the ODE -- training-free NFE
+        # reduction. On the natural last step tprev == 0, so the jump equals
+        # the normal Euler step and output is unchanged.
+        if exit_step is not None and i + 1 >= exit_step:
+            img = decode_endpoint(img, v, tcurr)
+            break
         img = img + (tprev - tcurr) * v
 
     # Unpatchify back to a latent and decode to pixels.

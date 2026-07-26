@@ -107,10 +107,30 @@ def _pipeline(
     type=float,
 )
 @click.option(
+    "--exit-step",
+    "exit_step",
+    default=None,
+    type=int,
+    help="Truncated Jump Sampling: run only this many denoising steps, then decode "
+    "x0 from the current state + velocity (training-free NFE cut).",
+)
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    exit_step,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +147,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        exit_step=exit_step,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"
