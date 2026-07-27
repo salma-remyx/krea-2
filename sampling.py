@@ -53,6 +53,23 @@ def timesteps(seq_len, steps, x1, x2, y1=0.5, y2=1.15, sigma=1.0, mu=None):
     return ts.tolist()
 
 
+def cfg_velocity(
+    model, img, tcurr, guidance, txt, pos, mask, untxt, unpos, unmask, cfg
+):
+    """One Euler-step velocity with optional classifier-free guidance.
+
+    Shared by ``sample`` and the progressive-seed-pruning path so both denoise
+    with identical numerics; ``untxt``/``unpos``/``unmask`` are ignored when
+    ``cfg`` is False.
+    """
+    t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
+    cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
+    if cfg:
+        uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
+        return cond + guidance * (cond - uncond)
+    return cond
+
+
 @torch.no_grad()
 def sample(
     model,
@@ -73,8 +90,43 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    num_candidates=None,
+    prune_to=None,
+    reward=None,
 ):
-    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode.
+
+    With ``num_candidates`` set, switches to Progressive Seed Pruning
+    (front-load seed exploration, prune the pool mid-denoise at fixed total
+    compute) instead of plain per-prompt sampling.
+    """
+    if num_candidates is not None:
+        # Inference-time scaling: evaluate many seeds early, prune aggressively.
+        from seed_pruning import sample_psp
+
+        return sample_psp(
+            model,
+            ae,
+            encoder,
+            prompts,
+            num_candidates=num_candidates,
+            prune_to=prune_to,
+            reward=reward,
+            negative_prompts=negative_prompts,
+            device=device,
+            dtype=dtype,
+            width=width,
+            height=height,
+            steps=steps,
+            guidance=guidance,
+            seed=seed,
+            minres=minres,
+            maxres=maxres,
+            y1=y1,
+            y2=y2,
+            mu=mu,
+        )
+
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,
@@ -110,6 +162,7 @@ def sample(
 
     # The unconditional branch is only used for CFG; skip encoding/prep entirely
     # when guidance is disabled.
+    untxt = unpos = unmask = None
     if cfg:
         untxt, untxtmask = encoder(negative_prompts)
         _, unpos, unmask = prepare(noise, untxt.shape[1], patch, untxtmask)
@@ -122,13 +175,9 @@ def sample(
     # Euler integration of the flow ODE with CFG.
     img = x
     for tcurr, tprev in zip(ts[:-1], ts[1:]):
-        t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
-        cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
-        if cfg:
-            uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
-            v = cond + guidance * (cond - uncond)
-        else:
-            v = cond
+        v = cfg_velocity(
+            model, img, tcurr, guidance, txt, pos, mask, untxt, unpos, unmask, cfg
+        )
         img = img + (tprev - tcurr) * v
 
     # Unpatchify back to a latent and decode to pixels.
