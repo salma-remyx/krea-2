@@ -107,10 +107,17 @@ def _pipeline(
     type=float,
 )
 @click.option(
+    "--prune",
+    default=None,
+    type=int,
+    help="explore N candidate seeds per image and progressively prune to the best "
+    "(Progressive Seed Pruning); omit for standard sampling",
+)
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu, prune
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +134,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        prune=prune,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"

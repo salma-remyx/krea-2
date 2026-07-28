@@ -76,6 +76,25 @@ uv run inference.py "a fox walking in the snow" \
 | `--checkpoint` | `oss_raw` | Checkpoint to load (`oss_raw`, `oss_turbo`). Defaults to `$K2_CHECKPOINT`. |
 | `--output` | `sample` | Output filename prefix. |
 
+### Progressive Seed Pruning (`--prune`)
+
+Best-of-N generation fully denoises every seed. `--prune N` instead explores
+`N` candidate seeds per image, scores each intermediate denoised estimate, and
+progressively prunes to the best survivors — so only promising trajectories are
+fully denoised. It is a training-free inference-time scaling option adapted
+from *Progressive Seed Pruning*, layered on the existing sampler without
+changing the prompt → image contract.
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_turbo --steps 8 --cfg 0.0 --mu 1.15 --prune 4
+```
+
+The printed `NFE` (network forward count) lets you match a best-of-N compute
+budget. The default seed scorer is a parameter-free latent-detail proxy; for a
+learned reward, call `seed_pruning.sample_psp(..., reward=fn)` directly, where
+`fn` maps a predicted-clean latent to per-candidate scores.
+
 
 ## Documentation
 

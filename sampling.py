@@ -73,8 +73,37 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    prune=None,
 ):
-    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode.
+
+    When ``prune`` (an int > 1) is set, generation runs via Progressive Seed
+    Pruning (see ``seed_pruning.sample_psp``): ``prune`` candidate seeds are
+    explored per image and progressively pruned to the best survivors.
+    """
+    if prune:
+        from seed_pruning import sample_psp
+
+        return sample_psp(
+            model,
+            ae,
+            encoder,
+            prompts,
+            explore=int(prune),
+            negative_prompts=negative_prompts,
+            device=device,
+            dtype=dtype,
+            width=width,
+            height=height,
+            steps=steps,
+            guidance=guidance,
+            seed=seed,
+            minres=minres,
+            maxres=maxres,
+            y1=y1,
+            y2=y2,
+            mu=mu,
+        )
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,
