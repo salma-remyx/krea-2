@@ -31,6 +31,28 @@ checkpoints = {
 }
 
 
+def _parse_keep_counts(text):
+    """Parse a comma-separated survivor schedule, e.g. ``"4,2,1"``."""
+    return tuple(int(part) for part in text.split(",") if part.strip())
+
+
+def resolve_sampler(psp, num_candidates, keep_counts, front_load_fraction):
+    """Pick the sampler for the requested mode.
+
+    Pure function (no model load) so the PSP wiring is unit-testable without a
+    GPU or checkpoints. Returns ``(sampler, extra_kwargs)``.
+    """
+    if psp:
+        from seed_pruning import sample_with_progressive_pruning
+
+        return sample_with_progressive_pruning, {
+            "num_candidates": num_candidates,
+            "keep_counts": keep_counts,
+            "front_load_fraction": front_load_fraction,
+        }
+    return sample, {}
+
+
 def _pipeline(
     mmdit_config=single_mmdit_large_wide,
     text_encoder_config=qwen3_vl_4b,
@@ -107,14 +129,61 @@ def _pipeline(
     type=float,
 )
 @click.option(
+    "--psp",
+    is_flag=True,
+    default=False,
+    help="enable Progressive Seed Pruning: fan out seeds, prune early, keep "
+    "compute fixed (inference-time scaling, no weight change).",
+)
+@click.option(
+    "--num-candidates",
+    "num_candidates",
+    default=4,
+    show_default=True,
+    help="[--psp] initial candidate seeds per prompt (front-loaded exploration).",
+)
+@click.option(
+    "--keep-counts",
+    "keep_counts",
+    default="2,1",
+    show_default=True,
+    help="[--psp] comma-separated survivors per prompt after each prune checkpoint.",
+)
+@click.option(
+    "--front-load-fraction",
+    "front_load_fraction",
+    default=0.5,
+    show_default=True,
+    type=float,
+    help="[--psp] place prune checkpoints within this fraction of the trajectory.",
+)
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    psp,
+    num_candidates,
+    keep_counts,
+    front_load_fraction,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
-    images = sample(
+    sampler, extra = resolve_sampler(
+        psp, num_candidates, _parse_keep_counts(keep_counts), front_load_fraction
+    )
+    images = sampler(
         dit,
         ae,
         encoder,
@@ -127,6 +196,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        **extra,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"

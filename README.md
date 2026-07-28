@@ -122,3 +122,37 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Progressive Seed Pruning (inference-time scaling)
+
+`--psp` enables Progressive Seed Pruning: instead of one noise seed per image,
+the sampler fans each prompt out to many candidate seeds, denoises them jointly
+for the early (cheap) steps, scores the intermediate estimates, and prunes the
+worst candidates at a few front-loaded checkpoints. Only the survivors are
+denoised to the end, so the same total compute budget buys more exploration
+where it is cheap and concentration where it is expensive. No model weights are
+changed — it is pure inference-time scaling over `sampling.sample`.
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_raw --steps 52 --cfg 3.5 \
+    --psp --num-candidates 8 --keep-counts 4,2,1 --front-load-fraction 0.5
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--psp` | off | Enable Progressive Seed Pruning. |
+| `--num-candidates` | `4` | Initial candidate seeds per prompt (front-loaded exploration). |
+| `--keep-counts` | `2,1` | Survivors per prompt after each prune checkpoint (comma-separated). |
+| `--front-load-fraction` | `0.5` | Place prune checkpoints within this fraction of the trajectory. |
+
+The default candidate scorer is a parameter-free velocity-agreement proxy (no
+reward model ships with the repo); pass a real reward callable via
+`seed_pruning.sample_with_progressive_pruning(reward=...)` (e.g. HPS /
+ImageReward) to recover the paper's full reward-guided selection. Use
+`seed_pruning.match_best_of_n(...)` to pick a `--num-candidates` /
+`--keep-counts` schedule whose compute matches a best-of-N baseline.
+
+Adapted from *Inference-Time Scaling of Diffusion Models via Progressive Seed
+Pruning* (arXiv:2607.21591).
+
