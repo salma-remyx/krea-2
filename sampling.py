@@ -6,6 +6,8 @@ import torch
 from einops import rearrange, repeat
 from PIL import Image
 
+from mean_direction_sampler import cfg_velocity, mean_direction_step
+
 
 def roundup(value, multiple, name):
     """Round `value` up to the nearest multiple, logging when padding is applied."""
@@ -73,8 +75,15 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    method="euler",
 ):
-    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    """End-to-end text-to-image sampling: encode -> denoise -> decode.
+
+    ``method`` selects the ODE integrator: ``"euler"`` (default, first-order,
+    one velocity eval per step) or ``"mean_direction"`` (trapezoidal / Heun,
+    two evals per step but larger, higher-quality steps -- see
+    ``mean_direction_sampler``).
+    """
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,
@@ -119,17 +128,29 @@ def sample(
     x2 = (maxres // (ae.compression * patch)) ** 2
     ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
-    # Euler integration of the flow ODE with CFG.
+    # Integrate the flow ODE, with CFG folded into the velocity closure so the
+    # integrator is independent of how the velocity is produced.
+    velocity = cfg_velocity(
+        model,
+        txt,
+        pos,
+        mask,
+        guidance,
+        untxt=untxt if cfg else None,
+        unpos=unpos if cfg else None,
+        unmask=unmask if cfg else None,
+    )
     img = x
     for tcurr, tprev in zip(ts[:-1], ts[1:]):
-        t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
-        cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
-        if cfg:
-            uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
-            v = cond + guidance * (cond - uncond)
+        if method == "mean_direction":
+            # Trapezoidal (Heun) step: step along the mean of the two endpoint
+            # directions to suppress Euler's per-step truncation error, so RAW
+            # can take fewer, larger steps. Parameter-free realization of
+            # AMED-Solver's mean-direction step (arXiv:2312.00094).
+            img = mean_direction_step(velocity, img, tcurr, tprev)
         else:
-            v = cond
-        img = img + (tprev - tcurr) * v
+            v = velocity(img, tcurr)
+            img = img + (tprev - tcurr) * v
 
     # Unpatchify back to a latent and decode to pixels.
     img = rearrange(

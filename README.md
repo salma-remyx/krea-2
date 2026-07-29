@@ -60,6 +60,21 @@ uv run inference.py "a fox walking in the snow" \
     --checkpoint oss_turbo --steps 8 --cfg 0.0 --mu 1.15 --width 2048 --height 2048
 ```
 
+### Fewer steps on RAW with mean-direction sampling
+
+The default `euler` integrator needs ~52 steps on `oss_raw`. Pass
+`--method mean_direction` to step along each trajectory's mean direction
+(trapezoidal / Heun rule) instead of a single endpoint direction — this
+suppresses the per-step truncation error, so RAW can take fewer, larger steps
+at similar quality. It uses two model evaluations per step (four with CFG), so
+pair it with a reduced `--steps`. (Mean-direction sampler — adapted from
+AMED-Solver, *Fast ODE-based Sampling for Diffusion Models in Around 5 Steps*.)
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_raw --steps 20 --cfg 3.5 --method mean_direction
+```
+
 ### Options
 
 | Flag | Default | Description |
