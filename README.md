@@ -75,6 +75,29 @@ uv run inference.py "a fox walking in the snow" \
 | `--seed` | `0` | Base seed; image *i* uses `seed + i`. |
 | `--checkpoint` | `oss_raw` | Checkpoint to load (`oss_raw`, `oss_turbo`). Defaults to `$K2_CHECKPOINT`. |
 | `--output` | `sample` | Output filename prefix. |
+| `--psp-seeds` | `0` | If `>0`, enable Progressive Seed Pruning with this many candidate seeds per prompt (best-of-N at matched compute); `0` uses the standard sampler. |
+
+## Progressive Seed Pruning
+
+`--psp-seeds N` enables Progressive Seed Pruning (PSP), an inference-time scaling
+method: instead of spending a fixed compute budget on one noise seed, it denoises
+`N` candidate seeds together through the early steps, scores the intermediate
+trajectories, and prunes the weakest at fixed checkpoints so only the most
+promising trajectory is fully denoised -- far cheaper than best-of-`N` while
+selecting from the same seed pool. `--psp-seeds 0` (the default) keeps the
+standard sampler.
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_turbo --steps 8 --cfg 0.0 --mu 1.15 --psp-seeds 4
+```
+
+`--psp-seeds N` returns the single best (pruned) image per prompt from `N`
+candidate seeds. The intermediate-trajectory score defaults to a parameter-free
+latent-energy proxy; pass a custom reward to
+`progressive_seed_pruning.sample_psp`'s `score_fn` (CLIP alignment, aesthetic
+score, ...) to recover full reward-guided selection. Adapted from *Inference-Time
+Scaling of Diffusion Models via Progressive Seed Pruning*.
 
 
 ## Documentation

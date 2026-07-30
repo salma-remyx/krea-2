@@ -7,6 +7,7 @@ from safetensors.torch import load_file
 from autoencoder import QwenAutoencoder
 from encoder import Qwen3VLConditioner, TextEncoderConfig
 from mmdit import SingleMMDiTConfig, SingleStreamDiT
+from progressive_seed_pruning import sample_psp
 from sampling import sample
 
 single_mmdit_large_wide = SingleMMDiTConfig(
@@ -109,16 +110,31 @@ def _pipeline(
 @click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
+@click.option(
+    "--psp-seeds",
+    default=0,
+    show_default=True,
+    help="if >0, enable Progressive Seed Pruning with this many candidate seeds per "
+    "prompt (best-of-N at matched compute); 0 uses the standard sampler",
+)
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    psp_seeds,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
-    images = sample(
-        dit,
-        ae,
-        encoder,
-        [prompt] * num_images,
+    common = dict(
         width=width,
         height=height,
         steps=steps,
@@ -128,6 +144,12 @@ def main(
         y2=y2,
         mu=mu,
     )
+    if psp_seeds > 0:
+        images = sample_psp(
+            dit, ae, encoder, [prompt] * num_images, num_seeds=psp_seeds, **common
+        )
+    else:
+        images = sample(dit, ae, encoder, [prompt] * num_images, **common)
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"
         image.save(out)
