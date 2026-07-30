@@ -8,6 +8,7 @@ from autoencoder import QwenAutoencoder
 from encoder import Qwen3VLConditioner, TextEncoderConfig
 from mmdit import SingleMMDiTConfig, SingleStreamDiT
 from sampling import sample
+from seed_pruning import sample_psp
 
 single_mmdit_large_wide = SingleMMDiTConfig(
     features=6144,
@@ -107,27 +108,70 @@ def _pipeline(
     type=float,
 )
 @click.option(
+    "--prune/--no-prune",
+    default=False,
+    help="use Progressive Seed Pruning (PSP): front-load seed exploration and "
+    "prune weak trajectories at a fixed compute budget (see --psp-*).",
+)
+@click.option("--psp-seeds", default=8, show_default=True, help="PSP: candidate seeds per prompt to front-load before pruning")
+@click.option("--psp-keep", default=1, show_default=True, help="PSP: survivors kept and returned after pruning")
+@click.option("--psp-prunes", default=3, show_default=True, help="PSP: prune checkpoints spread across the schedule")
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    prune,
+    psp_seeds,
+    psp_keep,
+    psp_prunes,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
-    images = sample(
-        dit,
-        ae,
-        encoder,
-        [prompt] * num_images,
-        width=width,
-        height=height,
-        steps=steps,
-        guidance=cfg,
-        seed=seed,
-        y1=y1,
-        y2=y2,
-        mu=mu,
-    )
+    if prune:
+        images = sample_psp(
+            dit,
+            ae,
+            encoder,
+            [prompt],
+            seeds=psp_seeds,
+            keep=psp_keep,
+            prunes=psp_prunes,
+            width=width,
+            height=height,
+            steps=steps,
+            guidance=cfg,
+            seed=seed,
+            y1=y1,
+            y2=y2,
+            mu=mu,
+        )
+    else:
+        images = sample(
+            dit,
+            ae,
+            encoder,
+            [prompt] * num_images,
+            width=width,
+            height=height,
+            steps=steps,
+            guidance=cfg,
+            seed=seed,
+            y1=y1,
+            y2=y2,
+            mu=mu,
+        )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"
         image.save(out)

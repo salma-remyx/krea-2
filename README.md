@@ -122,3 +122,15 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Inference-time scaling (Progressive Seed Pruning)
+
+`--prune` enables Progressive Seed Pruning (PSP) — adapted from *"Inference-Time Scaling of Diffusion Models via Progressive Seed Pruning"* (arXiv:2607.21591). Rather than spending the whole budget fully denoising every candidate, PSP front-loads exploration (`--psp-seeds` initial noises), scores intermediate denoised estimates, and progressively prunes to `--psp-keep` survivors over `--psp-prunes` checkpoints — concentrating a *fixed* model-evaluation budget on the most promising trajectories. The conserved budget is logged as `[psp] evals/prompt=…` (~best-of-N equivalent).
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_turbo --steps 8 --cfg 0.0 --mu 1.15 \
+    --prune --psp-seeds 8 --psp-keep 1 --psp-prunes 3
+```
+
+Scoring defaults to a parameter-free proxy (CFG-alignment under guidance, latent sharpness otherwise); supply a learned reward with `seed_pruning.sample_psp(reward=…)`.
