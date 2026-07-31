@@ -122,3 +122,33 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Inference-time scaling: seed pruning
+
+`seed_pruning.sample_pruned` is a training-free wrapper over `sampling.sample`
+that spends a fixed compute budget more effectively by **progressive seed
+pruning** — forking many initial-noise candidates, partially denoising all of
+them, scoring the intermediate latents, and pruning to the most promising
+subset before finishing the rest. Only the survivors are decoded, so more of
+the budget goes to promising trajectories than in best-of-N at matched NFEs.
+
+```python
+from inference import _pipeline
+from seed_pruning import sample_pruned
+
+dit, ae, encoder = _pipeline(checkpoint="oss_turbo")
+images = sample_pruned(
+    dit, ae, encoder, ["a fox walking in the snow"],
+    num_seeds=8, keep=[4, 1],   # 8 seeds -> 4 -> best 1, at a fixed NFE budget
+    steps=8, cfg=0.0, mu=1.15, width=2048, height=2048,
+)
+```
+
+`keep` is the non-increasing survivor count after each evenly-spaced checkpoint
+(its last entry is how many images you get back per prompt). The reward
+defaults to a parameter-free latent-energy proxy; pass `reward_fn=` (e.g. a CLIP
+prompt-alignment scorer) to reproduce the paper's selection gains. Use
+`seed_pruning.nfe_budget(num_seeds, keep, steps)` to match a best-of-N budget.
+
+Adapted from *Inference-Time Scaling of Diffusion Models via Progressive Seed
+Pruning*.
