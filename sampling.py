@@ -73,8 +73,39 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    psp_seeds=None,
+    psp_keep=1,
+    psp_prune_at=0.25,
+    psp_score=None,
 ):
     """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    # Opt-in Progressive Seed Pruning: front-load seed exploration and prune
+    # unpromising trajectories at a fixed total NFE. Default path is unchanged.
+    if psp_seeds and psp_seeds > 1:
+        from progressive_seed_pruning import sample_psp
+
+        return sample_psp(
+            model,
+            ae,
+            encoder,
+            prompts,
+            num_seeds=psp_seeds,
+            keep=psp_keep,
+            prune_at=psp_prune_at,
+            score_fn=psp_score,
+            device=device,
+            dtype=dtype,
+            width=width,
+            height=height,
+            steps=steps,
+            guidance=guidance,
+            seed=seed,
+            minres=minres,
+            maxres=maxres,
+            y1=y1,
+            y2=y2,
+            mu=mu,
+        )
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,

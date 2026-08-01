@@ -77,6 +77,29 @@ uv run inference.py "a fox walking in the snow" \
 | `--output` | `sample` | Output filename prefix. |
 
 
+### Progressive Seed Pruning (PSP)
+
+Inference-time scaling that front-loads seed exploration: explore many noise
+candidates for the first part of the schedule, score their intermediate
+denoised estimate, and prune to a few survivors that get fully denoised — at a
+fixed total compute budget (matched to plain best-of-N). Adapted from
+[*Inference-Time Scaling of Diffusion Models via Progressive Seed Pruning*](https://arxiv.org/abs/2607.21591).
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_turbo --steps 8 --cfg 0.0 --mu 1.15 \
+    --psp-seeds 8 --psp-keep 2 --psp-prune-at 0.25
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--psp-seeds` | `None` | Enable PSP: number of noise seeds to explore per prompt before pruning. |
+| `--psp-keep` | `1` | With `--psp-seeds`: survivors fully denoised per prompt. |
+| `--psp-prune-at` | `0.25` | With `--psp-seeds`: fraction of steps spent exploring before pruning. |
+
+The default reward is a parameter-free detail-energy proxy; pass a custom
+`score_fn` to `sampling.sample(..., psp_score=...)` to use a real reward model.
+
 ## Documentation
 
 - [Prompting Guide](docs/prompting.md)

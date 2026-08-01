@@ -107,10 +107,45 @@ def _pipeline(
     type=float,
 )
 @click.option(
+    "--psp-seeds",
+    default=None,
+    type=int,
+    help="enable Progressive Seed Pruning: explore this many noise seeds per "
+    "prompt, then prune to --psp-keep survivors at fixed total NFE",
+)
+@click.option(
+    "--psp-keep",
+    default=1,
+    show_default=True,
+    type=int,
+    help="with --psp-seeds: survivors fully denoised per prompt",
+)
+@click.option(
+    "--psp-prune-at",
+    default=0.25,
+    show_default=True,
+    type=float,
+    help="with --psp-seeds: fraction of steps spent exploring before pruning",
+)
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    psp_seeds,
+    psp_keep,
+    psp_prune_at,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +162,9 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        psp_seeds=psp_seeds,
+        psp_keep=psp_keep,
+        psp_prune_at=psp_prune_at,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"
