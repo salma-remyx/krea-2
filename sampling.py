@@ -6,6 +6,8 @@ import torch
 from einops import rearrange, repeat
 from PIL import Image
 
+from highorder import denoise_amed
+
 
 def roundup(value, multiple, name):
     """Round `value` up to the nearest multiple, logging when padding is applied."""
@@ -73,6 +75,8 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    sampler="euler",
+    amed_r=0.5,
 ):
     """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
     patch = model.config.patch
@@ -119,17 +123,24 @@ def sample(
     x2 = (maxres // (ae.compression * patch)) ** 2
     ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
-    # Euler integration of the flow ODE with CFG.
-    img = x
-    for tcurr, tprev in zip(ts[:-1], ts[1:]):
-        t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
-        cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
+    # CFG-combined flow velocity at latent `x`, scalar timestep `t`.
+    def velocity(x, t_scalar):
+        t = torch.full((len(x),), t_scalar, dtype=x.dtype, device=x.device)
+        cond = model(img=x, context=txt, t=t, pos=pos, mask=mask)
         if cfg:
-            uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
-            v = cond + guidance * (cond - uncond)
-        else:
-            v = cond
-        img = img + (tprev - tcurr) * v
+            uncond = model(img=x, context=untxt, t=t, pos=unpos, mask=unmask)
+            return cond + guidance * (cond - uncond)
+        return cond
+
+    # Integrate the flow ODE (t: 1 -> 0). Euler is the shipped Raw/Turbo
+    # behaviour; `sampler="amed"` swaps in the second-order mean-direction
+    # update (see `highorder.denoise_amed`) for fewer steps at iso-NFE.
+    img = x
+    if sampler == "amed":
+        img = denoise_amed(velocity, img, ts, r=amed_r)
+    else:
+        for tcurr, tprev in zip(ts[:-1], ts[1:]):
+            img = img + (tprev - tcurr) * velocity(img, tcurr)
 
     # Unpatchify back to a latent and decode to pixels.
     img = rearrange(

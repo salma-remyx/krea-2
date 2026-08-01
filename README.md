@@ -122,3 +122,20 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Few-step sampling (`--sampler amed`)
+
+The Raw model's default sampler is a first-order Euler integration of the
+flow ODE. Passing `--sampler amed` swaps in a second-order mean-direction
+solver (adapted from [AMED-Solver](https://arxiv.org/abs/2312.00094)),
+which is more accurate per step and reaches comparable quality at roughly
+half the step count, at about two function evaluations per step:
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_raw --sampler amed --steps 25 --cfg 3.5
+```
+
+`--sampler euler` (the default) preserves the original Raw/Turbo behaviour.
+The Turbo checkpoint is already distilled for 8-step sampling and does not
+need this option.
