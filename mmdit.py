@@ -8,6 +8,8 @@ from einops import rearrange
 from torch import Tensor
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
+from head_pruning import apply_head_mask
+
 
 def rope(pos: Tensor, dim: int, theta: float = 1e4, ntk: float = 1.0) -> Tensor:
     scale = torch.arange(0, dim, 2, dtype=torch.float64, device=pos.device) / dim
@@ -191,6 +193,18 @@ class Attention(torch.nn.Module):
         self.qknorm = QKNorm(self.headdim)
         self.gqa = self.heads != self.kvheads
         self.wo = torch.nn.Linear(dim, dim, bias=bias)
+        # Training-free head-pruning hook (arxiv:2607.19139). ``head_mask`` is a
+        # non-persistent buffer so it is excluded from the checkpoint state_dict
+        # (strict load stays clean); all-ones by default (a no-op).
+        # ``device="cpu"`` forces a real tensor even when the module is built
+        # under ``torch.device("meta")`` (as inference.py does) — a meta buffer
+        # would later crash ``.to(...)``. ``_head_pruning_active`` gates the
+        # masking so the default forward path is unchanged. See head_pruning.py.
+        self.register_buffer(
+            "head_mask", torch.ones(heads, device="cpu"), persistent=False
+        )
+        self._head_pruning_active = False
+        self._capture = None  # list of (q, k, mask) populated only while calibrating
 
     def forward(
         self, qkv: Tensor, freqs: Tensor | None = None, mask: Tensor | None = None
@@ -206,7 +220,12 @@ class Attention(torch.nn.Module):
         q, k, v = self.qknorm(q, k, v)
         if freqs is not None:
             q, k = ropeapply(q, k, freqs)
-        out = self.wo(attention(q, k, v, mask=mask, gqa=self.gqa) * F.sigmoid(gate))
+        if self._capture is not None:
+            self._capture.append((q.detach(), k.detach(), mask))
+        attn_out = attention(q, k, v, mask=mask, gqa=self.gqa)
+        if self._head_pruning_active:
+            attn_out = apply_head_mask(attn_out, self.head_mask, self.heads)
+        out = self.wo(attn_out * F.sigmoid(gate))
 
         return out
 
