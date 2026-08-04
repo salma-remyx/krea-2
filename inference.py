@@ -109,8 +109,28 @@ def _pipeline(
 @click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
+@click.option(
+    "--cache-every",
+    default=None,
+    type=int,
+    help="enable training-free increment-calibrated feature caching: recompute "
+    "transformer blocks every N steps and reuse calibrated features in between "
+    "(lower N = faster, lower fidelity)",
+)
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    cache_every,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +147,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        cache_every=cache_every,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"

@@ -73,8 +73,15 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    cache_every=None,
 ):
-    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode.
+
+    ``cache_every`` enables training-free increment-calibrated feature caching
+    (see ``feature_cache``): when set to N, transformer blocks are recomputed
+    only every Nth denoising step and reused (calibrated by their step-to-step
+    increment) on the steps in between. ``None`` disables it (default).
+    """
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,
@@ -120,11 +127,29 @@ def sample(
     ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
     # Euler integration of the flow ODE with CFG.
+    cache = None
+    if cache_every:
+        from feature_cache import IncrementCalibratedCache
+
+        cache = IncrementCalibratedCache(
+            num_blocks=len(model.blocks),
+            slots=2 if cfg else 1,
+            compute_every=cache_every,
+        )
+    # Attach the cache (or clear a stale one) so the block loop in forward()
+    # routes compute vs calibrated-reuse per step.
+    model.cache = cache
+
     img = x
-    for tcurr, tprev in zip(ts[:-1], ts[1:]):
+    for step, (tcurr, tprev) in enumerate(zip(ts[:-1], ts[1:])):
+        if cache is not None:
+            cache.step = step
+            cache.active_slot = 0
         t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
         cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
         if cfg:
+            if cache is not None:
+                cache.active_slot = 1
             uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
             v = cond + guidance * (cond - uncond)
         else:

@@ -323,6 +323,12 @@ class SingleStreamDiT(nn.Module):
         super().__init__()
         self.config = config
 
+        # Optional IncrementCalibratedCache (feature_cache). None = run every
+        # block on every step (default, unchanged behavior). When set by the
+        # sampler, the block loop below reuses calibrated features on cached
+        # denoising steps. Stored as a plain attribute, not an nn submodule.
+        self.cache = None
+
         headdim = config.features // config.heads
         axes = [
             headdim - 12 * (headdim // 16),
@@ -408,8 +414,12 @@ class SingleStreamDiT(nn.Module):
 
         freqs = self.posemb(pos)
 
-        for block in self.blocks:
-            combined = block(combined, tvec, freqs, mask)
+        cache = self.cache
+        for i, block in enumerate(self.blocks):
+            if cache is None:
+                combined = block(combined, tvec, freqs, mask)
+            else:
+                combined = cache(i, block, combined, tvec, freqs, mask)
 
         final = self.last(combined, t)
         output = final[:, txtlen : txtlen + imglen, :]

@@ -122,3 +122,12 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Acceleration (feature caching)
+
+`--cache-every N` enables an opt-in, **training-free** inference speedup. With it set, the transformer blocks are recomputed only every `N`th denoising step; on the steps in between their features are reused, calibrated by the step-to-step increment and refined with a channel-aware truncated SVD rather than reused verbatim. This trades a configurable amount of fidelity for fewer block evaluations while preserving the model's velocity I/O contract. Omit the flag (the default) to run every block on every step unchanged. Adapted from *Increment-Calibrated Caching with Channel-Aware SVD* (ICC).
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_raw --steps 28 --cfg 3.5 --cache-every 2
+```
