@@ -122,3 +122,30 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Prompt-head pruning (training-free) — adapted from "Text Template Tokens Are Implicit Semantic Registers in Diffusion Transformers"
+
+An optional, opt-in inference optimization. It prunes the joint-attention heads that read most strongly from the prompt tokens, which are causally dispensable for generation, trading a small amount of quality for a reduction in attention FLOPs. It is applied as a runtime patch over the DiT attention modules: **no weights are modified and the original checkpoints still load with `strict=True`.**
+
+```python
+from inference import _pipeline
+import prompt_head_pruning as php
+
+dit, ae, encoder = _pipeline(checkpoint="oss_turbo")
+
+context, _ = encoder(["a fox walking in the snow"])
+text_len = context.shape[1]  # number of prompt tokens
+
+def run_forward():
+    # Drive a few representative denoising steps so each head's prompt-attention
+    # can be measured. See `prompt_head_pruning.py` for the full API.
+    with torch.no_grad():
+        dit(img=noise, context=context, t=t, pos=pos, mask=mask)
+
+with php.prompt_head_pruning(dit, ratio=0.2, run_forward=run_forward, text_len=text_len):
+    ...  # sample here; the DiT runs attention on the pruned head set
+# the model is restored to full attention on exit
+```
+
+`ratio` is the fraction of attention head-groups pruned (grouped-query attention prunes whole kv groups, so the q:kv ratio stays valid). Call `php.remove_prompt_head_pruning(dit)` to restore manually.
+
