@@ -77,6 +77,33 @@ uv run inference.py "a fox walking in the snow" \
 | `--output` | `sample` | Output filename prefix. |
 
 
+## Training-free attention-head pruning
+
+`prune_heads.py` — adapted from *Text Template Tokens Are Implicit Semantic
+Registers in Diffusion Transformers* (arXiv:2607.19139). Attention heads that
+attend most strongly to the prompt are dispensable, so pruning the top fraction
+of them removes a proportional share of attention FLOPs at little quality cost.
+
+It scores every (layer, head) in a single training-free calibration forward —
+how much attention mass the image tokens place on the prompt — then rewrites
+each block's attention at runtime to run scaled-dot-product attention over the
+kept heads only. No weights change and no model source is patched:
+`head_pruning.HeadPruner` wraps any `SingleStreamDiT` and restores the original
+forwards on removal.
+
+```bash
+uv run prune_heads.py "a fox walking in the snow" \
+    --checkpoint oss_turbo --steps 8 --cfg 0.0 --mu 1.15 \
+    --prune-fraction 0.2
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--prune-fraction` | `0.2` | Fraction of attention heads to prune (paper default ~0.2). |
+| `--calibration-prompt` | the prompt | Prompt used to score heads before pruning. |
+| `--per-layer` | off | Prune the top fraction within each layer instead of globally. |
+
+
 ## Documentation
 
 - [Prompting Guide](docs/prompting.md)
