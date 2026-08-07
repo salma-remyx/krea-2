@@ -6,6 +6,8 @@ import torch
 from einops import rearrange, repeat
 from PIL import Image
 
+from solvers import integrate
+
 
 def roundup(value, multiple, name):
     """Round `value` up to the nearest multiple, logging when padding is applied."""
@@ -73,8 +75,15 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    solver="euler",
 ):
-    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    """End-to-end text-to-image sampling: encode -> flow-ODE denoise -> decode.
+
+    ``solver`` selects the ODE integrator (see ``solvers.py``): ``"euler"`` is
+    the original first-order integrator; ``"mean_direction"`` steps along the
+    trajectory's mean direction (parameter-free trapezoidal rule), reaching
+    comparable quality in roughly half the NFE on the RAW checkpoint.
+    """
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,
@@ -119,17 +128,17 @@ def sample(
     x2 = (maxres // (ae.compression * patch)) ** 2
     ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
-    # Euler integration of the flow ODE with CFG.
-    img = x
-    for tcurr, tprev in zip(ts[:-1], ts[1:]):
-        t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
-        cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
+    # Flow-ODE integration with CFG. The velocity RHS is shared by every solver;
+    # `solver` selects the integrator (see solvers.py).
+    def velocity(state, tcurr):
+        t = torch.full((len(state),), tcurr, dtype=state.dtype, device=state.device)
+        cond = model(img=state, context=txt, t=t, pos=pos, mask=mask)
         if cfg:
-            uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
-            v = cond + guidance * (cond - uncond)
-        else:
-            v = cond
-        img = img + (tprev - tcurr) * v
+            uncond = model(img=state, context=untxt, t=t, pos=unpos, mask=unmask)
+            return cond + guidance * (cond - uncond)
+        return cond
+
+    img = integrate(velocity, x, ts, solver=solver)
 
     # Unpatchify back to a latent and decode to pixels.
     img = rearrange(

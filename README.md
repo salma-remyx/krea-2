@@ -122,3 +122,25 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Fast sampling (higher-order ODE solver)
+
+`sample()` and the `--solver` CLI flag select the ODE integrator for the
+flow-matching trajectory on the RAW checkpoint:
+
+- `euler` (default) — the original first-order integrator.
+- `mean_direction` — steps along the trajectory's mean direction (a
+  parameter-free trapezoidal / Heun rule) instead of the Euler tangent. It uses
+  two function evaluations per step but, being second-order, reaches comparable
+  quality in roughly half the number of steps, cutting RAW NFE.
+
+Adapted from AMED-Solver (Zhou et al., [arXiv:2312.00094](https://arxiv.org/abs/2312.00094)),
+which learns the mean direction with a small predictor network. This
+inference-only codebase substitutes that learned predictor with the
+parameter-free average of the endpoint velocities — the same mean-direction
+signal, with no extra weights.
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_raw --steps 28 --cfg 3.5 --solver mean_direction
+```

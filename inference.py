@@ -107,10 +107,18 @@ def _pipeline(
     type=float,
 )
 @click.option(
+    "--solver",
+    default="euler",
+    show_default=True,
+    type=click.Choice(["euler", "mean_direction"]),
+    help="ODE integrator: 'euler' (1st-order) or 'mean_direction' (trapezoidal/"
+    "Heun mean-direction step; ~half the NFE for comparable quality on RAW).",
+)
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu, solver
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +135,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        solver=solver,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"
