@@ -122,3 +122,27 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+---
+
+## Inference acceleration (`--speca`)
+
+`--speca` wraps the MMDiT in a training-free, parameter-free
+**forecast-then-verify** velocity cache. At each denoising step it caches the
+velocity the model returns, forecasts the next step's velocity with a
+first-order Taylor extrapolation of the last few evaluations, and -- when the
+velocity field is locally smooth (a curvature check on the cache) -- **skips
+the full DiT forward** and advances the ODE with the forecast instead. In
+rapidly changing regions of the schedule the real model runs every step, so the
+approximation degrades gracefully toward the standard sampler. The skip rate
+(and speedup) is highest across the smooth middle of the schedule. Stack it on
+either checkpoint:
+
+```bash
+uv run inference.py "a fox walking in the snow" --checkpoint oss_turbo --steps 8 --cfg 0.0 --speca
+```
+
+This is an opt-in approximation adapted from *SpeCa: Accelerating Diffusion
+Transformers with Speculative Feature Caching* (arXiv:2509.11628), ported from
+feature-level to velocity-level caching with a curvature-based verifier in
+place of the paper's shallow-network verifier.

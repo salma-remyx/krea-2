@@ -109,8 +109,27 @@ def _pipeline(
 @click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
+@click.option(
+    "--speca/--no-speca",
+    default=False,
+    show_default=True,
+    help="wrap the MMDiT in a forecast-then-verify velocity cache that skips "
+    "forwards in locally smooth regions (training-free; adapted from SpeCa)",
+)
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    speca,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +146,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        speca=speca,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"

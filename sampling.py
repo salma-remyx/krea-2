@@ -6,6 +6,8 @@ import torch
 from einops import rearrange, repeat
 from PIL import Image
 
+from speculative_cache import SpeculativeVelocityCache
+
 
 def roundup(value, multiple, name):
     """Round `value` up to the nearest multiple, logging when padding is applied."""
@@ -73,8 +75,15 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    speca=False,
 ):
-    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
+    """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode.
+
+    When ``speca`` is true the MMDiT forward is wrapped in a
+    :class:`~speculative_cache.SpeculativeVelocityCache`, a training-free
+    forecast-then-verify accelerator that skips DiT forwards in locally smooth
+    regions of the velocity field (adapted from SpeCa, arXiv:2509.11628).
+    """
     patch = model.config.patch
 
     # The latent grid (dim // ae.compression) is patchified in `patch`-sized blocks,
@@ -121,6 +130,8 @@ def sample(
 
     # Euler integration of the flow ODE with CFG.
     img = x
+    if speca:
+        model = SpeculativeVelocityCache(model)
     for tcurr, tprev in zip(ts[:-1], ts[1:]):
         t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
         cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
