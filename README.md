@@ -122,3 +122,31 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Speed: pruning dispensable prompt heads (opt-in)
+
+`prompt_head_pruning.py` is a side-effect-free, opt-in acceleration adapted
+from *Text Template Tokens Are Implicit Semantic Registers in Diffusion
+Transformers* (arXiv:2607.19139). That work shows that in the DiT's joint
+text+image attention, the heads that read the prompt most strongly are
+dispensable — pruning ~20% of them preserves generation quality.
+
+Nothing changes until you enable it. Calibrate the per-head prompt-attention
+signal on one representative prompt, build a prune mask, and run sampling inside
+the context manager:
+
+```python
+from prompt_head_pruning import build_prune_mask, calibrate, prompt_head_pruning
+
+# img / txt / pos / mask come from sampling.prepare(...) and the encoder,
+# exactly as sampling.sample() builds them for one denoising step.
+prompt_attn = calibrate(dit, img=img, context=txt, t=t, pos=pos, mask=mask)
+prune_mask = build_prune_mask(prompt_attn, prune_ratio=0.2)
+
+with prompt_head_pruning(dit, prune_mask):
+    images = sample(dit, ae, encoder, prompts, ...)
+```
+
+Pruning zeroes each flagged head's contribution before the (linear) output
+projection, which is identical to removing the head. See the module docstring
+for the full adapted-port scope and the fused-kernel FLOP-slicing follow-up.
