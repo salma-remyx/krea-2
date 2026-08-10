@@ -8,6 +8,7 @@ from autoencoder import QwenAutoencoder
 from encoder import Qwen3VLConditioner, TextEncoderConfig
 from mmdit import SingleMMDiTConfig, SingleStreamDiT
 from sampling import sample
+from token_cache import TokenCacheConfig
 
 single_mmdit_large_wide = SingleMMDiTConfig(
     features=6144,
@@ -109,8 +110,27 @@ def _pipeline(
 @click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
+@click.option(
+    "--token-cache/--no-token-cache",
+    default=False,
+    show_default=True,
+    help="enable cluster-aware token caching (CAT Pruning-style): skip the "
+    "model forward on low-change steps for faster sampling",
+)
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt,
+    steps,
+    cfg,
+    y1,
+    y2,
+    width,
+    height,
+    num_images,
+    seed,
+    checkpoint,
+    output,
+    mu,
+    token_cache,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +147,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        token_cache=TokenCacheConfig(enabled=True) if token_cache else None,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"

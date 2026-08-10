@@ -113,7 +113,29 @@ Use the **Turbo** model for fast inference with high quality results. The **Raw*
 
 Both model weights are under our [community license](https://www.krea.ai/krea-2-licensing) with permissive use. To purchase a commercial license, please contact us at [opensource@krea.ai](mailto:opensource@krea.ai).
 
+## Token caching (cluster-aware) — adapted from CAT Pruning
+
+The sampler supports an opt-in, training-free token cache that speeds up
+inference by skipping the model forward on denoising steps where image tokens
+barely change. Each token is scored by its *noise relative magnitude* (how much
+the predicted velocity moves it relative to its current latent), the score is
+pooled over spatial clusters so the keep decision stays coherent, and tokens
+below threshold reuse the previous step's velocity. When almost no tokens are
+significant the whole forward is skipped (this is where the wall-clock saving
+comes from; both CFG passes are skipped). Off by default.
+
+```bash
+uv run inference.py "a fox walking in the snow" \
+    --checkpoint oss_raw --steps 52 --cfg 3.5 --token-cache
+```
+
+For programmatic control, pass a `TokenCacheConfig` to `sample(..., token_cache=...)`
+to tune the cluster window, keep/skip thresholds, and the consecutive-skip cap.
+Caching trades a little quality for speed; tune the thresholds per checkpoint
+(the 8-step Turbo tolerates more aggressive caching than the RAW sampler).
+
 ## Citation
+
 ```
 @misc{krea-2-2026,
     author={Sangwu Lee, Erwann Millon, Le Zhuo, Matthew Newton, Andrei Filatov, Abhinay Devarinti, Dazhi Zhong, Avram Djordjevic, Gabriel Menezes, Will Beddow, Titus Ebbecke, Mihai Petrescu, Owen Fahey, Gian Saß, Felix Gil, Victor Perez},
