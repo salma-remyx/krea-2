@@ -17,8 +17,8 @@ name: Outrider weekly refine
 # write side needed.
 
 on:
-  # schedule:  # disabled - serial dispatcher drives workflow_dispatch
-    # - cron: '0 12 * * 1'   # Mondays 12:00 UTC — after weekend accumulates
+  schedule:
+    - cron: '0 12 * * 1'   # Mondays 12:00 UTC — after weekend accumulates
   workflow_dispatch:
     inputs:
       lookback-days:
@@ -135,8 +135,8 @@ jobs:
           echo "→ picked branch: $BRANCH"
           echo "→ arxiv: ${ARXIV:-<unresolved>}"
 
-          if [ -z "$ARXIV" ]; then
-            echo "::error::arxiv_id could not be resolved for branch $BRANCH (checked intel yaml + override). Re-dispatch with pick-override-arxiv=<id>."
+          if ! printf '%s' "$ARXIV" | grep -qE '^(arxiv:)?[0-9]{4}\.[0-9]{4,5}(v[0-9]+)?$'; then
+            echo "::error::arxiv_id could not be resolved to a valid id for branch $BRANCH (checked intel yaml + override). Re-dispatch with pick-override-arxiv=<id>."
             exit 1
           fi
           echo "picked=$BRANCH" >> "$GITHUB_OUTPUT"
@@ -149,7 +149,6 @@ jobs:
           BRANCH: ${{ steps.pick.outputs.picked }}
           ARXIV: ${{ steps.pick.outputs.arxiv }}
           REPO: ${{ github.repository }}
-          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
         run: |
           set -euo pipefail
           python3 - <<'PYEOF' > gap_analysis.md
@@ -193,15 +192,15 @@ jobs:
               """).strip()
 
           req = urllib.request.Request(
-              "https://api.z.ai/api/anthropic/v1/messages",
+              "https://api.anthropic.com/v1/messages",
               data=json.dumps({
-                  "model": "glm-5.2",
+                  "model": "claude-sonnet-4-6",
                   "max_tokens": 4096,
                   "messages": [{"role": "user", "content": prompt_body}],
               }).encode(),
               headers={
                   "Content-Type": "application/json",
-                  "Authorization": f"Bearer {os.environ['ZAI_API_KEY']}",
+                  "x-api-key": os.environ["ANTHROPIC_API_KEY"],
                   "anthropic-version": "2023-06-01",
               },
               method="POST",
@@ -233,8 +232,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
             -f mode=recommend \
-            -f provider=moonshot \
-            -f model=kimi-k3 \
+            -f provider=anthropic \
+            -f model=claude-opus-4-8 \
             -f pin-arxiv="$ARXIV" \
             -f start-from-ref="$BRANCH" \
             -f lead-content="$GAP" \
