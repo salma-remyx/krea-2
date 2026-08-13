@@ -1,6 +1,18 @@
 schema_version: 1
 fork: salma-remyx/krea-2
-observed_landing_zones: []
+observed_landing_zones:
+- path: krea_2_oss.egg-info/
+  shape_tags:
+  - library-shape-public-api
+  confirmed_by:
+  - arxiv: 2608.12032v1
+    mode: Mode 2 (adapted port)
+    call_site_specifics: The inference.py click CLI (main, via the new --sparse-attn
+      flag) threads into sampling.sample(), whose block_sparse_attention context manager
+      sets sparse_state.active so mmdit.Attention.forward dispa
+    branch: losa-near-lossless-sparse-attention-for-training-free-video-
+    timestamp: '2026-08-13T20:14:57Z'
+  last_observed: '2026-08-13T20:14:57Z'
 rejected_shapes:
 - shape_tag: null
   reason_code: null
@@ -11,4 +23,4 @@ rejected_shapes:
   - arxiv: 2405.14430v3
     timestamp: '2026-08-09T03:30:38Z'
 coordination_signals: []
-last_updated: '2026-08-09T03:30:38Z'
+last_updated: '2026-08-13T20:14:57Z'
