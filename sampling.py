@@ -1,10 +1,13 @@
 """Functional flow-matching sampler for the K2 MMDiT (no Scheduler class)."""
 
 import math
+from contextlib import nullcontext
 
 import torch
 from einops import rearrange, repeat
 from PIL import Image
+
+from sparse_attention import block_sparse_attention
 
 
 def roundup(value, multiple, name):
@@ -73,6 +76,9 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    sparse_attn=False,
+    sparse_threshold=0.99,
+    sparse_block=64,
 ):
     """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
     patch = model.config.patch
@@ -119,17 +125,28 @@ def sample(
     x2 = (maxres // (ae.compression * patch)) ** 2
     ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
-    # Euler integration of the flow ODE with CFG.
-    img = x
-    for tcurr, tprev in zip(ts[:-1], ts[1:]):
-        t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
-        cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
-        if cfg:
-            uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
-            v = cond + guidance * (cond - uncond)
-        else:
-            v = cond
-        img = img + (tprev - tcurr) * v
+    # Euler integration of the flow ODE with CFG. When sparse attention is
+    # enabled, the first denoise step profiles per-(head, query-block)
+    # attention masses and freezes a near-lossless index set that every later
+    # step reuses (see sparse_attention.block_sparse_attention).
+    sparse_cm = (
+        block_sparse_attention(sparse_threshold, sparse_block)
+        if sparse_attn
+        else nullcontext()
+    )
+    with sparse_cm:
+        img = x
+        for tcurr, tprev in zip(ts[:-1], ts[1:]):
+            t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
+            cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
+            if cfg:
+                uncond = model(
+                    img=img, context=untxt, t=t, pos=unpos, mask=unmask
+                )
+                v = cond + guidance * (cond - uncond)
+            else:
+                v = cond
+            img = img + (tprev - tcurr) * v
 
     # Unpatchify back to a latent and decode to pixels.
     img = rearrange(

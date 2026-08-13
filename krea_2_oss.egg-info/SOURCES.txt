@@ -1,0 +1,8 @@
+LICENSE.md
+README.md
+pyproject.toml
+krea_2_oss.egg-info/PKG-INFO
+krea_2_oss.egg-info/SOURCES.txt
+krea_2_oss.egg-info/dependency_links.txt
+krea_2_oss.egg-info/requires.txt
+krea_2_oss.egg-info/top_level.txt
