@@ -113,6 +113,13 @@ def _pipeline(
     help="enable measure-then-freeze block-sparse attention (LoSA-style, near-lossless)",
 )
 @click.option(
+    "--sparse-warmup",
+    default=3,
+    show_default=True,
+    help="dense warm-up denoise steps before block-sparse profiling",
+    type=int,
+)
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
@@ -129,6 +136,7 @@ def main(
     output,
     mu,
     sparse_attn,
+    sparse_warmup,
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -146,6 +154,7 @@ def main(
         y2=y2,
         mu=mu,
         sparse_attn=sparse_attn,
+        sparse_warmup=sparse_warmup,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"

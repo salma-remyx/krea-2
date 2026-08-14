@@ -128,10 +128,12 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
 Pass `--sparse-attn` to enable a training-free, measure-then-freeze
 block-sparse attention path (adapted from *LoSA: Near-Lossless Sparse
 Attention for Training-Free Video Diffusion Acceleration*,
-[arXiv:2608.12032](https://arxiv.org/abs/2608.12032)). On the first
-denoise step it measures exact per-(head, query-block) attention masses,
-freezes the smallest key/value block set that retains 99% of the mass, and
-reuses those indices for every remaining step — near-lossless by
+[arXiv:2608.12032](https://arxiv.org/abs/2608.12032)). After
+`--sparse-warmup` dense warm-up steps (default 3) it measures exact
+per-(head, query-block) attention masses on one profiling step, freezes
+the smallest key/value block set that retains 99% of the mass — separately
+for the conditional and unconditional CFG branches — and reuses those
+indices for every remaining step — near-lossless by
 construction, with the dense path kept as the profiling step and fallback.
 The threshold fixes fidelity rather than a sparsity ratio; the dense
 `attention()` path is unchanged when the flag is off.

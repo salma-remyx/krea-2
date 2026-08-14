@@ -1,10 +1,12 @@
 """Opt-in block-sparse attention with a retained-mass threshold (LoSA-style).
 
-Training-free sparse attention for the K2 MMDiT. At a single profiling
-denoise step we run the dense path AND measure exact per-(head,
-query-block) attention masses, then greedily keep the smallest key/value
+Training-free sparse attention for the K2 MMDiT. After ``warmup`` dense
+denoise steps (the paper constructs at t0=3, after warm-up steps 0-2, so
+the measured masses reflect a settled trajectory rather than pure noise),
+a single profiling step runs the dense path AND measures exact per-(head,
+query-block) attention masses, then greedily keeps the smallest key/value
 block set whose cumulative mass meets a fixed *retained-mass* threshold
-(default 0.99) and freeze it. Every later step reuses the frozen block
+(default 0.99) and freezes it. Every later step reuses the frozen block
 indices. Near-lossless by construction: the threshold fixes fidelity
 rather than a sparsity ratio, so the high-mass support is always retained.
 
@@ -24,6 +26,11 @@ Mode-2 substitutions vs. the paper:
     max kept-set (a superset for heads needing fewer blocks), which trades
     a little efficiency for kernel friendliness while staying a strict
     superset of the paper's per-head set (so fidelity is preserved).
+  * Frozen indices are kept separately for the conditional and
+    unconditional CFG branches, as the paper specifies; the branch is
+    identified by call parity within a denoise step (the sampler always
+    runs the conditional branch first), so no sampler/model signature
+    changes are needed.
   * Feature-caching composition (the paper's 3.2x result) and the video
     benchmark suite are intentionally out of scope for this slice;
     evaluation belongs in a downstream PR.
@@ -51,36 +58,69 @@ class _SparseState:
         self.active = False
         self.threshold = 0.99
         self.block = 64
-        # id(Attention module) -> frozen selection (None = keep this module dense).
-        self.selections: dict[int, dict | None] = {}
+        self.warmup = 3
+        # Denoise-step counter, advanced by ``advance_step`` once per Euler
+        # step; steps below ``warmup`` stay fully dense.
+        self.step = 0
+        # id(Attention module) -> calls seen this step, used to tell the
+        # conditional (first) and unconditional (second) CFG branches apart.
+        self.branch_counts: dict[int, int] = {}
+        # (id(Attention module), cfg branch) -> frozen selection
+        # (None = keep this module dense).
+        self.selections: dict[tuple[int, int], dict | None] = {}
 
     def clear(self) -> None:
         self.selections.clear()
+        self.branch_counts.clear()
+        self.step = 0
 
 
 sparse_state = _SparseState()
 
 
 @contextmanager
-def block_sparse_attention(threshold: float = 0.99, block: int = 64):
+def block_sparse_attention(threshold: float = 0.99, block: int = 64, warmup: int = 3):
     """Activate measure-then-freeze block-sparse attention for a denoise loop.
 
-    On each attention module's first call inside the context the dense path
-    runs and exact block masses are measured; the smallest key/value block
-    set retaining ``threshold`` of the mass is frozen and reused for every
-    later call. Enter this around the sampler's denoise loop (see
-    ``sampling.sample``).
+    The first ``warmup`` denoise steps run fully dense (the paper profiles at
+    t0=3 after warm-up steps 0-2). On the profiling step each attention
+    module runs the dense path, measures exact block masses, and freezes the
+    smallest key/value block set retaining ``threshold`` of the mass — one
+    frozen set per CFG branch — which every later call reuses. Enter this
+    around the sampler's denoise loop (see ``sampling.sample``).
     """
-    prev = (sparse_state.active, sparse_state.threshold, sparse_state.block)
+    prev = (
+        sparse_state.active,
+        sparse_state.threshold,
+        sparse_state.block,
+        sparse_state.warmup,
+    )
     sparse_state.active = True
     sparse_state.threshold = threshold
     sparse_state.block = block
+    sparse_state.warmup = warmup
     sparse_state.clear()
     try:
         yield
     finally:
-        sparse_state.active, sparse_state.threshold, sparse_state.block = prev
+        (
+            sparse_state.active,
+            sparse_state.threshold,
+            sparse_state.block,
+            sparse_state.warmup,
+        ) = prev
         sparse_state.clear()
+
+
+def advance_step() -> None:
+    """Mark the end of one denoise step.
+
+    Ages the warm-up counter and resets per-step CFG-branch parity. Called by
+    ``sampling.sample`` once per Euler step; a no-op when inactive.
+    """
+    if sparse_state.active:
+        sparse_state.step += 1
+        sparse_state.branch_counts.clear()
 
 
 def _expand_gqa(x: Tensor, heads: int) -> Tensor:
@@ -214,18 +254,30 @@ def sparse_attention(
 ) -> Tensor:
     """Drop-in sparse-or-dense attention for the K2 MMDiT.
 
-    Inactive (the default): pure dense path. Active: each attention module
-    profiles on its first call (dense output + block-mass measurement),
-    freezes the smallest retained-mass block set, and reuses it thereafter.
-    ``key`` is the owning attention module and keys the frozen selection.
+    Inactive (the default): pure dense path. Active: denoise steps below
+    ``warmup`` stay dense; on the profiling step each attention module
+    returns the dense result, measures block masses, and freezes the
+    smallest retained-mass block set, reused thereafter. ``key`` is the
+    owning attention module; selections are frozen per (module, CFG branch),
+    where the branch is the call parity within the current denoise step (the
+    sampler runs the conditional branch first; without CFG every call is
+    branch 0).
     """
     st = sparse_state
     if not st.active:
         return _dense(q, k, v, mask, scale, gqa)
 
+    if st.step < st.warmup:
+        # Dense warm-up: the paper constructs the block sets at t0=3, after
+        # the trajectory has settled, not on the first (pure-noise) step.
+        return _dense(q, k, v, mask, scale, gqa)
+
     block = st.block
     kid = id(key)
-    if kid not in st.selections:
+    branch = min(st.branch_counts.get(kid, 0), 1)
+    st.branch_counts[kid] = branch + 1
+    skey = (kid, branch)
+    if skey not in st.selections:
         # Profiling step: return the dense result and freeze a selection.
         out = _dense(q, k, v, mask, scale, gqa)
         lq, lk = q.shape[2], k.shape[2]
@@ -235,12 +287,12 @@ def sparse_attention(
         if divisible and gqa_ok:
             sc = scale if scale is not None else q.shape[-1] ** -0.5
             masses = _block_masses(q, k, mask, sc, block)
-            st.selections[kid] = _select(masses, st.threshold)
+            st.selections[skey] = _select(masses, st.threshold)
         else:
-            st.selections[kid] = None  # keep this module on the dense path
+            st.selections[skey] = None  # keep this module on the dense path
         return out
 
-    sel = st.selections[kid]
+    sel = st.selections[skey]
     if sel is None:
         return _dense(q, k, v, mask, scale, gqa)
     sc = scale if scale is not None else q.shape[-1] ** -0.5

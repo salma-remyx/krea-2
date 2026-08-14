@@ -7,7 +7,7 @@ import torch
 from einops import rearrange, repeat
 from PIL import Image
 
-from sparse_attention import block_sparse_attention
+from sparse_attention import advance_step, block_sparse_attention
 
 
 def roundup(value, multiple, name):
@@ -79,6 +79,7 @@ def sample(
     sparse_attn=False,
     sparse_threshold=0.99,
     sparse_block=64,
+    sparse_warmup=3,
 ):
     """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
     patch = model.config.patch
@@ -126,11 +127,12 @@ def sample(
     ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
     # Euler integration of the flow ODE with CFG. When sparse attention is
-    # enabled, the first denoise step profiles per-(head, query-block)
-    # attention masses and freezes a near-lossless index set that every later
-    # step reuses (see sparse_attention.block_sparse_attention).
+    # enabled, the first `sparse_warmup` steps stay dense, then one step
+    # profiles per-(head, query-block) attention masses and freezes a
+    # near-lossless index set per CFG branch that every later step reuses
+    # (see sparse_attention.block_sparse_attention).
     sparse_cm = (
-        block_sparse_attention(sparse_threshold, sparse_block)
+        block_sparse_attention(sparse_threshold, sparse_block, sparse_warmup)
         if sparse_attn
         else nullcontext()
     )
@@ -147,6 +149,7 @@ def sample(
             else:
                 v = cond
             img = img + (tprev - tcurr) * v
+            advance_step()
 
     # Unpatchify back to a latent and decode to pixels.
     img = rearrange(

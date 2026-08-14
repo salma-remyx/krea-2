@@ -138,3 +138,22 @@ Both model weights are under our [community license](https://www.krea.ai/krea-2-
     howpublished={\url{https://www.krea.ai/blog/krea-2-technical-report}},
 }
 ```
+
+## Optional: block-sparse attention (experimental)
+
+Pass `--sparse-attn` to enable a training-free, measure-then-freeze
+block-sparse attention path (adapted from *LoSA: Near-Lossless Sparse
+Attention for Training-Free Video Diffusion Acceleration*,
+[arXiv:2608.12032](https://arxiv.org/abs/2608.12032)). On the first
+denoise step it measures exact per-(head, query-block) attention masses,
+freezes the smallest key/value block set that retains 99% of the mass, and
+reuses those indices for every remaining step — near-lossless by
+construction, with the dense path kept as the profiling step and fallback.
+The threshold fixes fidelity rather than a sparsity ratio; the dense
+`attention()` path is unchanged when the flag is off.
+
+The retained-mass mechanism was validated in the paper on **video**
+diffusion transformers; whether it is a net win for Krea 2's **image**
+tokens (and at which resolution/step count) is the open question this flag
+exposes for experimentation, not a guaranteed speedup.
+
