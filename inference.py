@@ -107,10 +107,17 @@ def _pipeline(
     type=float,
 )
 @click.option(
+    "--cache",
+    default=None,
+    help="token cache reuse ratio (e.g. 0.8); every other step reuses cached "
+    "attention features, recomputing the rest",
+    type=float,
+)
+@click.option(
     "--output", default="sample", show_default=True, help="output filename prefix"
 )
 def main(
-    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu
+    prompt, steps, cfg, y1, y2, width, height, num_images, seed, checkpoint, output, mu, cache
 ):
     dit, ae, encoder = _pipeline(checkpoint=checkpoint)
 
@@ -127,6 +134,7 @@ def main(
         y1=y1,
         y2=y2,
         mu=mu,
+        cache_reuse=cache,
     )
     for i, image in enumerate(images):
         out = f"{output}_{i}.png"

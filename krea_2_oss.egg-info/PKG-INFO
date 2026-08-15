@@ -1,3 +1,19 @@
+Metadata-Version: 2.4
+Name: krea-2-oss
+Version: 0.1.0
+Summary: Minimal inference code for the Krea 2 (K2) diffusion model
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE.md
+Requires-Dist: torch>=2.9.0
+Requires-Dist: transformers==4.57.1
+Requires-Dist: safetensors>=0.4.0
+Requires-Dist: pillow>=10.0.0
+Requires-Dist: einops>=0.7.0
+Requires-Dist: diffusers>=0.32.0
+Requires-Dist: click>=8.4.1
+Dynamic: license-file
+
 # Krea 2 (K2)
 
 Krea 2 - an image generation model from [Krea AI](https://www.krea.ai).
@@ -70,7 +86,6 @@ uv run inference.py "a fox walking in the snow" \
 | `--y1` | `0.5` | Timestep-shift `mu` at min resolution. |
 | `--y2` | `1.15` | Timestep-shift `mu` at max resolution. |
 | `--mu` | `None` | Pin a constant timestep-shift `mu`, overriding the resolution-derived value. Recommended `1.15` for `oss_turbo`. |
-| `--cache` | `None` | Token cache reuse ratio (e.g. `0.8`). Every other step reuses cached attention features — alternating between reusing the whole step and recomputing a random token subset — instead of running the full attention stack. |
 | `--width` / `--height` | `1024` ~ `2048` | Output resolution; padded up to a multiple of 16 if needed. |
 | `--num-images` | `1` | Number of images to generate from the prompt. |
 | `--seed` | `0` | Base seed; image *i* uses `seed + i`. |

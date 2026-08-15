@@ -5,6 +5,7 @@ import math
 import torch
 from einops import rearrange, repeat
 from PIL import Image
+from token_cache import dual_cache
 
 
 def roundup(value, multiple, name):
@@ -73,6 +74,7 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    cache_reuse=None,
 ):
     """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
     patch = model.config.patch
@@ -119,17 +121,20 @@ def sample(
     x2 = (maxres // (ae.compression * patch)) ** 2
     ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
-    # Euler integration of the flow ODE with CFG.
+    # Euler integration of the flow ODE with CFG. `dual_cache` mirrors the
+    # timestep loop so cached steps know which alternating strategy to run.
     img = x
-    for tcurr, tprev in zip(ts[:-1], ts[1:]):
-        t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
-        cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
-        if cfg:
-            uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
-            v = cond + guidance * (cond - uncond)
-        else:
-            v = cond
-        img = img + (tprev - tcurr) * v
+    with dual_cache.configured(reuse=cache_reuse):
+        for tcurr, tprev in zip(ts[:-1], ts[1:]):
+            dual_cache.begin_step()
+            t = torch.full((len(img),), tcurr, dtype=img.dtype, device=img.device)
+            cond = model(img=img, context=txt, t=t, pos=pos, mask=mask)
+            if cfg:
+                uncond = model(img=img, context=untxt, t=t, pos=unpos, mask=unmask)
+                v = cond + guidance * (cond - uncond)
+            else:
+                v = cond
+            img = img + (tprev - tcurr) * v
 
     # Unpatchify back to a latent and decode to pixels.
     img = rearrange(

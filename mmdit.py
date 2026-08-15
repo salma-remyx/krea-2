@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor
+from token_cache import dual_cache, gather_rows, scatter_rows
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
 
@@ -193,6 +194,29 @@ class Attention(torch.nn.Module):
         self.wo = torch.nn.Linear(dim, dim, bias=bias)
 
     def forward(
+        self,
+        qkv: Tensor,
+        freqs: Tensor | None = None,
+        mask: Tensor | None = None,
+        layer_idx: int | None = None,
+    ) -> Tensor:
+        # DuCa-style token caching (see token_cache.py): on cached steps the
+        # attention branch reuses per-layer features instead of recomputing.
+        # `layer_idx` namespaces the cache; None (text fusion) opts out.
+        mode = dual_cache.mode
+        cached = None if layer_idx is None or mode == "compute" else dual_cache.get(layer_idx)
+        if cached is not None and cached.shape == qkv.shape:
+            if mode == "aggressive":
+                return cached
+            # Conservative: recompute a random token subset, reuse the rest.
+            out = self._attend_subset(qkv, freqs, mask, cached)
+        else:
+            out = self.full_forward(qkv, freqs, mask)
+        if layer_idx is not None and dual_cache.enabled:
+            dual_cache.store(layer_idx, out)
+        return out
+
+    def full_forward(
         self, qkv: Tensor, freqs: Tensor | None = None, mask: Tensor | None = None
     ) -> Tensor:
         q, k, v, gate = self.wq(qkv), self.wk(qkv), self.wv(qkv), self.gate(qkv)
@@ -209,6 +233,32 @@ class Attention(torch.nn.Module):
         out = self.wo(attention(q, k, v, mask=mask, gqa=self.gqa) * F.sigmoid(gate))
 
         return out
+
+    def _attend_subset(
+        self, qkv: Tensor, freqs: Tensor | None, mask: Tensor | None, cached: Tensor
+    ) -> Tensor:
+        """Recompute attention for a random token subset, reuse `cached` elsewhere.
+
+        The selected queries still attend to every key (k/v are projected for
+        the full sequence), so a recomputed token sees the same context it
+        would in a full step — only its own projection work is skipped for
+        the tokens left in the cache.
+        """
+        b, length = qkv.shape[:2]
+        idx = dual_cache.fresh_indices(length, qkv.device)  # (1, K), shared across batch
+        rows = idx.expand(b, -1)
+        sel = gather_rows(qkv, rows)
+        q, k, v, gate = self.wq(sel), self.wk(qkv), self.wv(qkv), self.gate(sel)
+        q = rearrange(q, "B L (H D) -> B H L D", H=self.heads)
+        k = rearrange(k, "B L (H D) -> B H L D", H=self.kvheads)
+        v = rearrange(v, "B L (H D) -> B H L D", H=self.kvheads)
+        q, k, v = self.qknorm(q, k, v)
+        if freqs is not None:
+            q, _ = ropeapply(q, q, freqs[:, idx[0]])
+            k, _ = ropeapply(k, k, freqs)
+        submask = None if mask is None else mask[:, :, idx[0], :]
+        out = self.wo(attention(q, k, v, mask=submask, gqa=self.gqa) * F.sigmoid(gate))
+        return scatter_rows(cached, rows, out)
 
 
 class LastLayer(torch.nn.Module):
@@ -307,11 +357,16 @@ class SingleStreamBlock(nn.Module):
         self.mlp = SwiGLU(features, multiplier, bias)
 
     def forward(
-        self, x: Tensor, vec: Tensor, freqs: Tensor, mask: Tensor | None = None
+        self,
+        x: Tensor,
+        vec: Tensor,
+        freqs: Tensor,
+        mask: Tensor | None = None,
+        layer_idx: int | None = None,
     ) -> Tensor:
         prescale, preshift, pregate, postscale, postshift, postgate = self.mod(vec)
         x = x + pregate * self.attn(
-            (1 + prescale) * self.prenorm(x) + preshift, freqs, mask
+            (1 + prescale) * self.prenorm(x) + preshift, freqs, mask, layer_idx
         )
         x = x + postgate * self.mlp((1 + postscale) * self.postnorm(x) + postshift)
 
@@ -408,8 +463,9 @@ class SingleStreamDiT(nn.Module):
 
         freqs = self.posemb(pos)
 
-        for block in self.blocks:
-            combined = block(combined, tvec, freqs, mask)
+        dual_cache.begin_pass()
+        for i, block in enumerate(self.blocks):
+            combined = block(combined, tvec, freqs, mask, i)
 
         final = self.last(combined, t)
         output = final[:, txtlen : txtlen + imglen, :]
