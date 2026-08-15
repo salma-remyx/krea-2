@@ -12,7 +12,14 @@ observed_landing_zones:
       sets sparse_state.active so mmdit.Attention.forward dispa
     branch: losa-near-lossless-sparse-attention-for-training-free-video-
     timestamp: '2026-08-13T20:14:57Z'
-  last_observed: '2026-08-13T20:14:57Z'
+  - arxiv: 2412.18911v1
+    mode: Mode 2 (adapted port)
+    call_site_specifics: inference.py:main (the existing Click CLI) -> sampling.py:sample
+      -> SingleStreamDiT.forward block loop -> mmdit.py:Attention.forward; cache state
+      is opened via dual_cache.configured() in sampling.py:s
+    branch: accelerating-diffusion-transformers-with-dual-feature-cachin-v3
+    timestamp: '2026-08-15T09:43:10Z'
+  last_observed: '2026-08-15T09:43:10Z'
 rejected_shapes:
 - shape_tag: null
   reason_code: null
@@ -23,4 +30,4 @@ rejected_shapes:
   - arxiv: 2405.14430v3
     timestamp: '2026-08-09T03:30:38Z'
 coordination_signals: []
-last_updated: '2026-08-13T20:14:57Z'
+last_updated: '2026-08-15T09:43:10Z'
