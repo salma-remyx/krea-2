@@ -19,7 +19,12 @@ observed_landing_zones:
       is opened via dual_cache.configured() in sampling.py:s
     branch: accelerating-diffusion-transformers-with-dual-feature-cachin-v3
     timestamp: '2026-08-15T09:43:10Z'
-  last_observed: '2026-08-15T09:43:10Z'
+  - arxiv: 2608.18040v1
+    mode: ''
+    call_site_specifics: ''
+    branch: optimize-your-sampling-tuned-diffusion-sampling-with-bayesia
+    timestamp: '2026-08-22T12:26:49Z'
+  last_observed: '2026-08-22T12:26:49Z'
 rejected_shapes:
 - shape_tag: null
   reason_code: null
@@ -30,4 +35,4 @@ rejected_shapes:
   - arxiv: 2405.14430v3
     timestamp: '2026-08-09T03:30:38Z'
 coordination_signals: []
-last_updated: '2026-08-15T09:43:10Z'
+last_updated: '2026-08-22T12:26:49Z'
