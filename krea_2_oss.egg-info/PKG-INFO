@@ -1,3 +1,19 @@
+Metadata-Version: 2.4
+Name: krea-2-oss
+Version: 0.1.0
+Summary: Minimal inference code for the Krea 2 (K2) diffusion model
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE.md
+Requires-Dist: torch>=2.9.0
+Requires-Dist: transformers==4.57.1
+Requires-Dist: safetensors>=0.4.0
+Requires-Dist: pillow>=10.0.0
+Requires-Dist: einops>=0.7.0
+Requires-Dist: diffusers>=0.32.0
+Requires-Dist: click>=8.4.1
+Dynamic: license-file
+
 # Krea 2 (K2)
 
 Krea 2 - an image generation model from [Krea AI](https://www.krea.ai).
@@ -70,52 +86,11 @@ uv run inference.py "a fox walking in the snow" \
 | `--y1` | `0.5` | Timestep-shift `mu` at min resolution. |
 | `--y2` | `1.15` | Timestep-shift `mu` at max resolution. |
 | `--mu` | `None` | Pin a constant timestep-shift `mu`, overriding the resolution-derived value. Recommended `1.15` for `oss_turbo`. |
-| `--schedule` | `None` | JSON file of tuned timesteps (see [Tuning a schedule](#tuning-a-schedule)); overrides `--steps`. |
 | `--width` / `--height` | `1024` ~ `2048` | Output resolution; padded up to a multiple of 16 if needed. |
 | `--num-images` | `1` | Number of images to generate from the prompt. |
 | `--seed` | `0` | Base seed; image *i* uses `seed + i`. |
 | `--checkpoint` | `oss_raw` | Checkpoint to load (`oss_raw`, `oss_turbo`). Defaults to `$K2_CHECKPOINT`. |
 | `--output` | `sample` | Output filename prefix. |
-
-
-## Tuning a schedule
-
-The timesteps a sampler walks are usually inherited from the training
-distribution. `schedule_search.py` treats them as a black-box optimization
-target instead: it searches over monotone `t: 1 -> 0` schedules of a fixed
-step count with Bayesian optimization, scoring each candidate against a
-metric you supply, and writes the winner to a JSON file that `--schedule`
-consumes. This is training-free, so it works on the distilled `oss_turbo`
-checkpoint as well as on `oss_raw`.
-
-```python
-from inference import _pipeline
-from schedule_search import sampler, tune
-
-dit, ae, encoder = _pipeline(checkpoint="oss_turbo")
-
-# Render one image per candidate schedule; score it however you like.
-render = sampler(dit, ae, encoder, "a fox walking in the snow", guidance=0.0, mu=1.15)
-
-result = tune(
-    lambda schedule: my_metric(render(schedule)),  # e.g. a reward or CLIP score
-    steps=5,
-    init=5,
-    iters=15,
-)
-result.save("turbo_5step.json")
-```
-
-```bash
-uv run inference.py "a fox walking in the snow" \
-    --checkpoint oss_turbo --cfg 0.0 --mu 1.15 --schedule turbo_5step.json
-```
-
-The search always evaluates the default schedule first, so the tuned result
-is only ever worse than it through noise in the metric. Schedules are shared
-across prompts, seeds, and resolutions, so tune once on a small prompt set
-and reuse. Adapted from [Optimize Your Sampling: Tuned Diffusion Sampling
-with Bayesian Optimization](https://arxiv.org/abs/2608.18040).
 
 
 ## Documentation

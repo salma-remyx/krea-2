@@ -73,6 +73,7 @@ def sample(
     y1=0.5,
     y2=1.15,
     mu=None,
+    schedule=None,
 ):
     """End-to-end text-to-image sampling: encode -> euler+CFG denoise -> decode."""
     patch = model.config.patch
@@ -117,7 +118,9 @@ def sample(
     # min_res/max_res define the (x1,y1)-(x2,y2) interpolation endpoints for `mu`.
     x1 = (minres // (ae.compression * patch)) ** 2
     x2 = (maxres // (ae.compression * patch)) ** 2
-    ts = timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
+    # An explicit schedule (e.g. one tuned offline by schedule_search.tune)
+    # replaces the derived grid; `steps` is then the length of that schedule.
+    ts = schedule or timesteps(x.shape[1], steps, x1, x2, y1=y1, y2=y2, mu=mu)
 
     # Euler integration of the flow ODE with CFG.
     img = x
