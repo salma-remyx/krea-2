@@ -8,6 +8,8 @@ from einops import rearrange
 from torch import Tensor
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
+from sparse_attention import sparse_attention, sparse_state
+
 
 def rope(pos: Tensor, dim: int, theta: float = 1e4, ntk: float = 1.0) -> Tensor:
     scale = torch.arange(0, dim, 2, dtype=torch.float64, device=pos.device) / dim
@@ -206,7 +208,15 @@ class Attention(torch.nn.Module):
         q, k, v = self.qknorm(q, k, v)
         if freqs is not None:
             q, k = ropeapply(q, k, freqs)
-        out = self.wo(attention(q, k, v, mask=mask, gqa=self.gqa) * F.sigmoid(gate))
+        # Opt-in measure-then-freeze block-sparse attention (LoSA-style). The
+        # default path is unchanged dense attention; only when the sampler has
+        # activated it does the sparse dispatcher take over.
+        attn = (
+            sparse_attention(q, k, v, key=self, mask=mask, gqa=self.gqa)
+            if sparse_state.active
+            else attention(q, k, v, mask=mask, gqa=self.gqa)
+        )
+        out = self.wo(attn * F.sigmoid(gate))
 
         return out
 

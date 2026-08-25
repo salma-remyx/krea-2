@@ -1,0 +1,7 @@
+torch>=2.9.0
+transformers==4.57.1
+safetensors>=0.4.0
+pillow>=10.0.0
+einops>=0.7.0
+diffusers>=0.32.0
+click>=8.4.1
